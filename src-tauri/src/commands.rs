@@ -1,0 +1,674 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::process::{Command, Child};
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, State};
+
+// Type definitions
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VideoMetadata {
+    pub title: String,
+    pub thumbnail: String,
+    pub duration: String,
+    pub uploader: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VideoInfo {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub duration: u64,
+    pub uploader: String,
+    pub thumbnail: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VideoFormat {
+    pub id: String,
+    pub ext: String,
+    pub resolution: String,
+    pub fps: u32,
+    pub filesize: Option<u64>,
+    pub vcodec: String,
+    pub acodec: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Subtitle {
+    pub lang: String,
+    pub name: String,
+    pub format: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DownloadOptions {
+    pub url: String,
+    pub format: String,
+    pub output: String,
+    pub subtitles: bool,
+    pub subtitle_langs: Option<Vec<String>>,
+    pub cookies: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DownloadProgress {
+    pub id: String,
+    pub progress: f64,
+    pub speed: String,
+    pub eta: String,
+    pub downloaded: String,
+    pub total_size: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentDownload {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub file_path: String,
+    pub thumbnail: String,
+    pub size: u64,
+    pub duration: u64,
+    pub quality: String,
+    pub downloaded_at: String,
+    pub format: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Credentials {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub cookies: String,
+}
+
+// Global state for tracking downloads
+pub struct DownloadManager {
+    downloads: Mutex<HashMap<String, Child>>,
+}
+
+impl DownloadManager {
+    pub fn new() -> Self {
+        Self {
+            downloads: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+// Helper function to get recent downloads storage path
+fn get_recent_downloads_path() -> Result<PathBuf, String> {
+    let mut path = dirs::home_dir()
+        .ok_or("Failed to get home directory")?;
+    path.push(".youtube-downloader");
+    path.push("recent-downloads.json");
+    
+    // Create directory if it doesn't exist
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    
+    Ok(path)
+}
+
+// Helper function to validate YouTube URL
+#[tauri::command]
+pub fn validate_url(url: String) -> Result<VideoMetadata, String> {
+    // Basic YouTube URL validation
+    let youtube_regex = regex::Regex::new(
+        r"^(https?://)?(www\.)?(youtube\.com/(watch\?v=|shorts/)|youtu\.be/)[\w-]+"
+    ).map_err(|e| format!("Failed to create regex: {}", e))?;
+
+    if !youtube_regex.is_match(&url) {
+        return Err("Invalid YouTube URL".to_string());
+    }
+
+    // For now, return a placeholder metadata
+    // In a real implementation, we would use yt-dlp to fetch actual metadata
+    Ok(VideoMetadata {
+        title: "Video Title".to_string(),
+        thumbnail: "".to_string(),
+        duration: "0:00".to_string(),
+        uploader: "Uploader".to_string(),
+    })
+}
+
+// Helper function to find yt-dlp executable
+fn find_yt_dlp() -> Result<String, String> {
+    // First, try to find the bundled yt-dlp in the Resources directory
+    // When running as a bundled app, the executable is in .app/Contents/MacOS/
+    // and resources are in .app/Contents/Resources/
+    if let Ok(exe_path) = std::env::current_exe() {
+        let exe_str = exe_path.to_string_lossy().to_string();
+        eprintln!("DEBUG: exe_path = {}", exe_str);
+        
+        if let Some(resources_dir) = exe_path.parent().and_then(|p| p.parent()) {
+            let resources_dir_str = resources_dir.to_string_lossy().to_string();
+            eprintln!("DEBUG: resources_dir = {}", resources_dir_str);
+            
+            // Try both paths: Resources/yt-dlp and Resources/binaries/yt-dlp
+            let resources_path = resources_dir.join("Resources").join("yt-dlp");
+            let resources_path_str = resources_path.to_string_lossy().to_string();
+            eprintln!("DEBUG: checking resources_path = {}, exists = {}", resources_path_str, resources_path.exists());
+            
+            if resources_path.exists() {
+                eprintln!("DEBUG: Found yt-dlp at {}", resources_path_str);
+                return Ok(resources_path_str);
+            }
+            
+            let binaries_path = resources_dir.join("Resources").join("binaries").join("yt-dlp");
+            let binaries_path_str = binaries_path.to_string_lossy().to_string();
+            eprintln!("DEBUG: checking binaries_path = {}, exists = {}", binaries_path_str, binaries_path.exists());
+            
+            if binaries_path.exists() {
+                eprintln!("DEBUG: Found yt-dlp at {}", binaries_path_str);
+                return Ok(binaries_path_str);
+            }
+        }
+    }
+
+    // Fallback: try to find yt-dlp using 'which' command
+    eprintln!("DEBUG: Trying 'which' command");
+    let output = Command::new("which")
+        .arg("yt-dlp")
+        .output()
+        .map_err(|e| format!("Failed to run 'which' command: {}", e))?;
+
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        eprintln!("DEBUG: 'which' found yt-dlp at {}", path);
+        if !path.is_empty() {
+            Ok(path)
+        } else {
+            Err("yt-dlp not found. Please install yt-dlp using: brew install yt-dlp".to_string())
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("DEBUG: 'which' failed: {}", stderr);
+        Err("yt-dlp not found. Please install yt-dlp using: brew install yt-dlp".to_string())
+    }
+}
+
+// Helper function to get cookies file path
+fn get_cookies_path() -> Result<String, String> {
+    let mut path = dirs::home_dir()
+        .ok_or("Failed to get home directory")?;
+    path.push(".youtube-downloader");
+    path.push("cookies.txt");
+    
+    if path.exists() {
+        Ok(path.to_string_lossy().to_string())
+    } else {
+        Err("Cookies file not found. Please run: yt-dlp --cookies-from-browser chrome --cookies ~/.youtube-downloader/cookies.txt --skip-download \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"".to_string())
+    }
+}
+
+// Get video info using yt-dlp
+#[tauri::command]
+pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
+    let yt_dlp = find_yt_dlp()?;
+    let cookies_path = get_cookies_path()?;
+
+    let output = Command::new(&yt_dlp)
+        .args([
+            "--cookies", &cookies_path,
+            "--dump-json", 
+            "--no-playlist",
+            &url
+        ])
+        .output()
+        .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("yt-dlp error: {}", stderr));
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    Ok(VideoInfo {
+        id: json["id"].as_str().unwrap_or("").to_string(),
+        title: json["title"].as_str().unwrap_or("").to_string(),
+        description: json["description"].as_str().unwrap_or("").to_string(),
+        duration: json["duration"].as_u64().unwrap_or(0),
+        uploader: json["uploader"].as_str().unwrap_or("").to_string(),
+        thumbnail: json["thumbnail"].as_str().unwrap_or("").to_string(),
+    })
+}
+
+// Get available formats
+#[tauri::command]
+pub async fn get_available_formats(url: String) -> Result<Vec<VideoFormat>, String> {
+    let yt_dlp = find_yt_dlp()?;
+    let cookies_path = get_cookies_path()?;
+
+    // Use --dump-json to get JSON output (formats are included in the video info)
+    let output = Command::new(&yt_dlp)
+        .args([
+            "--cookies", &cookies_path,
+            "--dump-json", 
+            "--no-playlist",
+            &url
+        ])
+        .output()
+        .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("yt-dlp error: {}", stderr));
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    let formats = json["formats"].as_array()
+        .ok_or("No formats found")?;
+
+    let mut video_formats = Vec::new();
+    for format in formats {
+        if let Some(ext) = format["ext"].as_str() {
+            if ext == "mp4" || ext == "webm" || ext == "mkv" {
+                video_formats.push(VideoFormat {
+                    id: format["format_id"].as_str().unwrap_or("").to_string(),
+                    ext: ext.to_string(),
+                    resolution: format["resolution"].as_str().unwrap_or("").to_string(),
+                    fps: format["fps"].as_u64().unwrap_or(0) as u32,
+                    filesize: format["filesize"].as_u64(),
+                    vcodec: format["vcodec"].as_str().unwrap_or("").to_string(),
+                    acodec: format["acodec"].as_str().unwrap_or("").to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(video_formats)
+}
+
+// Get available subtitles
+#[tauri::command]
+pub async fn get_available_subtitles(url: String) -> Result<Vec<Subtitle>, String> {
+    let yt_dlp = find_yt_dlp()?;
+    let cookies_path = get_cookies_path()?;
+
+    // Use --dump-json to get JSON output (subtitles are included in the video info)
+    let output = Command::new(&yt_dlp)
+        .args([
+            "--cookies", &cookies_path,
+            "--dump-json", 
+            "--no-playlist",
+            &url
+        ])
+        .output()
+        .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("yt-dlp error: {}", stderr));
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    let mut subtitle_list = Vec::new();
+    
+    // Check both "subtitles" and "automatic_captions" fields
+    if let Some(subtitles) = json["subtitles"].as_object() {
+        for (lang, data) in subtitles {
+            if let Some(sub_array) = data.as_array() {
+                if let Some(first_sub) = sub_array.first() {
+                    subtitle_list.push(Subtitle {
+                        lang: lang.clone(),
+                        name: first_sub["name"].as_str().unwrap_or(lang).to_string(),
+                        format: first_sub["ext"].as_str().unwrap_or("srt").to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(subtitle_list)
+}
+
+// Start download
+#[tauri::command]
+pub async fn start_download(
+    options: DownloadOptions,
+    app: AppHandle,
+    _manager: State<'_, DownloadManager>,
+) -> Result<String, String> {
+    let download_id = uuid::Uuid::new_v4().to_string();
+    let app_clone = app.clone();
+
+    // Build yt-dlp command
+    let yt_dlp = find_yt_dlp()?;
+    let cookies_path = get_cookies_path()?;
+    let mut cmd = Command::new(&yt_dlp);
+    
+    // Use cookies file for authentication
+    cmd.arg("--cookies").arg(&cookies_path);
+    
+    // Use best video+audio format and let yt-dlp merge them properly
+    // This avoids the MPEG-TS container issues and ensures seekable video
+    cmd.arg("-f").arg("bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best");
+    cmd.arg("--merge-output-format").arg("mp4");
+    
+    cmd.arg("-o").arg(&options.output);
+    cmd.arg("--newline");
+    cmd.arg("--progress");
+    
+    // Always download English subtitles automatically (manual subs only, no auto-generated)
+    cmd.arg("--write-subs");
+    cmd.arg("--sub-langs").arg("en");
+    cmd.arg("--sub-format").arg("srt/best");
+    cmd.arg("--convert-subs").arg("srt");
+
+    if let Some(cookies) = &options.cookies {
+        cmd.arg("--cookies").arg(cookies);
+    }
+
+    cmd.arg(&options.url);
+
+    // Redirect stderr to stdout so we can capture all output
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit()) // Let errors show in terminal
+        .spawn()
+        .map_err(|e| format!("Failed to start download: {}", e))?;
+
+    let download_id_for_task = download_id.clone();
+    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    
+    // Spawn a thread to monitor the download progress
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().map_while(Result::ok) {
+            eprintln!("yt-dlp: {}", line); // Debug output to terminal
+            
+            // Parse progress from yt-dlp output
+            if line.contains("[download]") && line.contains("%") {
+                if let Some(progress) = parse_progress(&line) {
+                    let _ = app_clone.emit("download-progress", serde_json::json!({
+                        "id": download_id_for_task,
+                        "progress": progress.0,
+                        "speed": progress.1,
+                        "eta": progress.2
+                    }));
+                }
+            }
+        }
+        
+        // Wait for the process to finish
+        let status = child.wait();
+        eprintln!("Download finished with status: {:?}", status);
+        
+        // Emit completion event
+        let _ = app_clone.emit("download-complete", download_id_for_task);
+    });
+
+    Ok(download_id)
+}
+
+// Helper function to parse progress from yt-dlp output
+fn parse_progress(line: &str) -> Option<(f64, String, String)> {
+    // Example: [download]  45.2% of 100.00MiB at 5.00MiB/s ETA 00:10
+    let progress_regex = regex::Regex::new(r"(\d+\.?\d*)%.*?at\s+(\S+).*?ETA\s+(\S+)").ok()?;
+    
+    if let Some(caps) = progress_regex.captures(line) {
+        let progress: f64 = caps.get(1)?.as_str().parse().ok()?;
+        let speed = caps.get(2)?.as_str().to_string();
+        let eta = caps.get(3)?.as_str().to_string();
+        return Some((progress, speed, eta));
+    }
+    
+    // Simpler fallback: just get percentage
+    let simple_regex = regex::Regex::new(r"(\d+\.?\d*)%").ok()?;
+    if let Some(caps) = simple_regex.captures(line) {
+        let progress: f64 = caps.get(1)?.as_str().parse().ok()?;
+        return Some((progress, "".to_string(), "".to_string()));
+    }
+    
+    None
+}
+
+// Cancel download
+#[tauri::command]
+pub async fn cancel_download(id: String, manager: State<'_, DownloadManager>) -> Result<(), String> {
+    let mut downloads = manager.downloads.lock().unwrap();
+    if let Some(mut child) = downloads.remove(&id) {
+        child.kill().map_err(|e| format!("Failed to kill process: {}", e))?;
+        Ok(())
+    } else {
+        Err("Download not found".to_string())
+    }
+}
+
+// Get download progress
+#[tauri::command]
+pub async fn get_download_progress(id: String) -> Result<DownloadProgress, String> {
+    // For now, return a placeholder
+    // In a real implementation, we would track actual progress
+    Ok(DownloadProgress {
+        id,
+        progress: 0.0,
+        speed: "0B/s".to_string(),
+        eta: "0:00".to_string(),
+        downloaded: "0B".to_string(),
+        total_size: "0B".to_string(),
+    })
+}
+
+// Save credentials
+#[tauri::command]
+pub async fn save_credentials(credentials: Credentials) -> Result<(), String> {
+    let mut path = dirs::home_dir()
+        .ok_or("Failed to get home directory")?;
+    path.push(".youtube-downloader");
+    path.push("credentials.json");
+    
+    // Create directory if it doesn't exist
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    
+    let json = serde_json::to_string_pretty(&credentials)
+        .map_err(|e| format!("Failed to serialize credentials: {}", e))?;
+    
+    fs::write(&path, json).map_err(|e| format!("Failed to write credentials: {}", e))?;
+    
+    Ok(())
+}
+
+// Load credentials
+#[tauri::command]
+pub async fn load_credentials() -> Result<Credentials, String> {
+    let mut path = dirs::home_dir()
+        .ok_or("Failed to get home directory")?;
+    path.push(".youtube-downloader");
+    path.push("credentials.json");
+    
+    let content = fs::read_to_string(&path)
+        .map_err(|_| "No credentials found".to_string())?;
+    
+    let credentials: Credentials = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse credentials: {}", e))?;
+    
+    Ok(credentials)
+}
+
+// Clear credentials
+#[tauri::command]
+pub async fn clear_credentials() -> Result<(), String> {
+    let mut path = dirs::home_dir()
+        .ok_or("Failed to get home directory")?;
+    path.push(".youtube-downloader");
+    path.push("credentials.json");
+    
+    fs::remove_file(&path).map_err(|e| format!("Failed to remove credentials: {}", e))?;
+    
+    Ok(())
+}
+
+// Test function to verify yt-dlp path resolution
+#[tauri::command]
+pub async fn test_yt_dlp() -> Result<String, String> {
+    let output = Command::new("which")
+        .arg("yt-dlp")
+        .output()
+        .map_err(|_| "yt-dlp not found".to_string())?;
+    
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(path)
+}
+
+// Select save location
+#[tauri::command]
+pub async fn select_save_location() -> Result<String, String> {
+    let path = dirs::download_dir()
+        .ok_or("Failed to get downloads directory")?;
+    
+    Ok(path.to_string_lossy().to_string())
+}
+
+// Get recent downloads
+#[tauri::command]
+pub async fn get_recent_downloads() -> Result<Vec<RecentDownload>, String> {
+    let path = get_recent_downloads_path()?;
+    
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read recent downloads: {}", e))?;
+    
+    let downloads: Vec<RecentDownload> = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse recent downloads: {}", e))?;
+    
+    Ok(downloads)
+}
+
+// Save a recent download
+#[tauri::command]
+pub async fn save_recent_download(download: RecentDownload) -> Result<(), String> {
+    let path = get_recent_downloads_path()?;
+    
+    // Load existing downloads
+    let mut downloads: Vec<RecentDownload> = if path.exists() {
+        let content = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read recent downloads: {}", e))?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    
+    // Add new download at the beginning
+    downloads.insert(0, download);
+    
+    // Keep only the last 100 downloads
+    downloads.truncate(100);
+    
+    // Save back to file
+    let json = serde_json::to_string_pretty(&downloads)
+        .map_err(|e| format!("Failed to serialize recent downloads: {}", e))?;
+    
+    fs::write(&path, json)
+        .map_err(|e| format!("Failed to write recent downloads: {}", e))?;
+    
+    Ok(())
+}
+
+// Open file
+#[tauri::command]
+pub async fn open_file(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+// Open in folder
+#[tauri::command]
+pub async fn open_in_folder(path: String) -> Result<(), String> {
+    let path_obj = PathBuf::from(&path);
+    
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("-R")
+            .arg(&path_obj)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg("/select,")
+            .arg(&path_obj)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("dbus-send")
+            .args([
+                "--session",
+                "--dest=org.freedesktop.FileManager1",
+                "--type=method_call",
+                "/org/freedesktop/FileManager1",
+                "org.freedesktop.FileManager1.ShowItems",
+                format!("array:string:file://{}", path_obj.to_string_lossy()),
+                "string:",
+            ])
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+// Delete file
+#[tauri::command]
+pub async fn delete_file(path: String) -> Result<(), String> {
+    fs::remove_file(&path).map_err(|e| format!("Failed to delete file: {}", e))?;
+    Ok(())
+}
+
+// Clear recent downloads
+#[tauri::command]
+pub async fn clear_recent_downloads() -> Result<(), String> {
+    let path = get_recent_downloads_path()?;
+    
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| format!("Failed to clear recent downloads: {}", e))?;
+    }
+    
+    Ok(())
+}
