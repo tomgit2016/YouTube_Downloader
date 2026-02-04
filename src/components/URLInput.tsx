@@ -4,7 +4,7 @@ import { YtDlpService } from '../services/ytdlp';
 import { isValidYouTubeUrl } from '../utils/validation';
 
 export const URLInput: React.FC = () => {
-  const { currentUrl, setUrl, setVideoInfo, setAvailableFormats, setAvailableSubtitles, setIsLoading, setError } = useAppStore();
+  const { currentUrl, setUrl, setVideoInfo, setAvailableFormats, setAvailableSubtitles, setIsLoading, setError, setQuality } = useAppStore();
   const [isValid, setIsValid] = useState(false);
 
   const handleUrlChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -21,6 +21,16 @@ export const URLInput: React.FC = () => {
       setAvailableFormats([]);
       setAvailableSubtitles([]);
     }
+  };
+
+  const handleClear = () => {
+    setUrl('');
+    setIsValid(false);
+    setVideoInfo(null);
+    setAvailableFormats([]);
+    setAvailableSubtitles([]);
+    setQuality(null);
+    setError(null);
   };
 
   const fetchVideoInfo = async (url: string) => {
@@ -55,14 +65,26 @@ export const URLInput: React.FC = () => {
           onChange={handleUrlChange}
           className={`url-input ${isValid ? 'valid' : ''}`}
         />
-        {isValid && (
-          <div className="url-status valid">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <circle cx="10" cy="10" r="8" stroke="#22c55e" strokeWidth="2" />
-              <path d="M6 10L9 13L14 7" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-        )}
+        <div className="url-actions">
+          {isValid && (
+            <div className="url-status valid">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <circle cx="10" cy="10" r="8" stroke="#10b981" strokeWidth="2" />
+                <path d="M6 10L9 13L14 7" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+          )}
+          {currentUrl && (
+            <button 
+              type="button" 
+              className="clear-url-button" 
+              onClick={handleClear}
+              title="Clear URL"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

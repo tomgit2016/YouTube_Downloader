@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAppStore } from './stores/app-store';
 import { URLInput } from './components/URLInput';
 import { QualitySelector } from './components/QualitySelector';
@@ -22,11 +22,22 @@ function App() {
     loadRecentDownloads,
   } = useAppStore();
 
+  const downloadButtonRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
-    // Initialize save location
-    invoke<string>('select_save_location').then(setSaveLocation);
+    // Initialize save location with default (no dialog)
+    invoke<string>('get_default_save_location').then(setSaveLocation);
     loadRecentDownloads();
   }, [loadRecentDownloads]);
+
+  // Auto-scroll to download button when video info is loaded
+  useEffect(() => {
+    if (videoInfo && downloadButtonRef.current) {
+      setTimeout(() => {
+        downloadButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+    }
+  }, [videoInfo]);
 
   const handleDownload = async () => {
     if (!videoInfo || !selectedQuality || !saveLocation) {
@@ -95,6 +106,7 @@ function App() {
           <SaveLocationPicker />
 
           <button
+            ref={downloadButtonRef}
             onClick={handleDownload}
             disabled={!canDownload}
             className="download-button"

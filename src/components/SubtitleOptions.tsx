@@ -7,7 +7,6 @@ export const SubtitleOptions: React.FC = () => {
   // Auto-enable subtitles and select English when subtitles become available
   useEffect(() => {
     if (availableSubtitles.length > 0 && !selectedSubtitles.enabled) {
-      const hasEnglish = availableSubtitles.some((s) => s.lang === 'en' || s.lang.startsWith('en'));
       const englishLang = availableSubtitles.find((s) => s.lang === 'en' || s.lang.startsWith('en'));
       
       setSubtitles({
@@ -40,16 +39,13 @@ export const SubtitleOptions: React.FC = () => {
     });
   };
 
-  const handleFormatChange = (format: 'srt' | 'vtt' | 'ass') => {
-    setSubtitles({
-      ...selectedSubtitles,
-      format,
-    });
-  };
+  // Find English subtitle
+  const englishSub = availableSubtitles.find((s) => s.lang === 'en' || s.lang.startsWith('en'));
+  const otherSubs = availableSubtitles.filter((s) => s.lang !== 'en' && !s.lang.startsWith('en'));
 
   return (
     <div className="subtitle-options">
-      <div className="subtitle-toggle">
+      <div className="subtitle-header">
         <label className="checkbox-label">
           <input
             type="checkbox"
@@ -58,13 +54,22 @@ export const SubtitleOptions: React.FC = () => {
           />
           <span>Download Subtitles</span>
         </label>
+        {selectedSubtitles.enabled && englishSub && (
+          <label className="checkbox-label english-option">
+            <input
+              type="checkbox"
+              checked={selectedSubtitles.languages.includes(englishSub.lang)}
+              onChange={(e) => handleLanguageChange(englishSub.lang, e.target.checked)}
+            />
+            <span>English</span>
+          </label>
+        )}
       </div>
 
-      {selectedSubtitles.enabled && (
+      {selectedSubtitles.enabled && otherSubs.length > 0 && (
         <div className="subtitle-details">
           <div className="subtitle-languages">
-            <label>Languages:</label>
-            {availableSubtitles.map((subtitle) => (
+            {otherSubs.map((subtitle) => (
               <label key={subtitle.lang} className="checkbox-label">
                 <input
                   type="checkbox"
@@ -74,19 +79,6 @@ export const SubtitleOptions: React.FC = () => {
                 <span>{subtitle.name}</span>
               </label>
             ))}
-          </div>
-
-          <div className="subtitle-format">
-            <label htmlFor="subtitle-format">Format:</label>
-            <select
-              id="subtitle-format"
-              value={selectedSubtitles.format}
-              onChange={(e) => handleFormatChange(e.target.value as 'srt' | 'vtt' | 'ass')}
-            >
-              <option value="srt">SRT</option>
-              <option value="vtt">VTT</option>
-              <option value="ass">ASS</option>
-            </select>
           </div>
         </div>
       )}

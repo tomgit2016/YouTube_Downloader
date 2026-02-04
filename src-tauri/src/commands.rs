@@ -528,6 +528,35 @@ pub async fn test_yt_dlp() -> Result<String, String> {
 // Select save location
 #[tauri::command]
 pub async fn select_save_location() -> Result<String, String> {
+    use std::process::Command;
+    
+    // Use osascript to show a folder picker dialog on macOS
+    let output = Command::new("osascript")
+        .args([
+            "-e",
+            r#"set chosenFolder to choose folder with prompt "Select download location"
+            return POSIX path of chosenFolder"#
+        ])
+        .output()
+        .map_err(|e| format!("Failed to open folder picker: {}", e))?;
+    
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            return Ok(path);
+        }
+    }
+    
+    // Fallback to default downloads directory
+    let path = dirs::download_dir()
+        .ok_or("Failed to get downloads directory")?;
+    
+    Ok(path.to_string_lossy().to_string())
+}
+
+// Get default save location (without dialog)
+#[tauri::command]
+pub async fn get_default_save_location() -> Result<String, String> {
     let path = dirs::download_dir()
         .ok_or("Failed to get downloads directory")?;
     
