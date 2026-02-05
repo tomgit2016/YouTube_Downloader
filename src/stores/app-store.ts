@@ -109,9 +109,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setSaveLocation: (path) => set({ saveLocation: path }),
 
-  addToQueue: (item) => set((state) => ({
-    downloadQueue: [...state.downloadQueue, item],
-  })),
+  addToQueue: (item) => {
+    console.log('Adding to queue:', item);
+    set((state) => ({
+      downloadQueue: [...state.downloadQueue, item],
+    }));
+  },
 
   removeFromQueue: (id) => set((state) => ({
     downloadQueue: state.downloadQueue.filter((item) => item.id !== id),
@@ -126,19 +129,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
   startDownload: async (id) => {
     const state = get();
     const item = state.downloadQueue.find((d) => d.id === id);
+    console.log('startDownload called, id:', id, 'item:', item);
     if (!item) return;
 
     // Capture video info now before it might change
     const videoInfo = state.videoInfo;
 
     // Update item status
-    set((state) => ({
-      downloadQueue: state.downloadQueue.map((d) =>
-        d.id === id ? { ...d, status: 'downloading' as const } : d
-      ),
-    }));
+    set((state) => {
+      console.log('Setting status to downloading for:', id);
+      return {
+        downloadQueue: state.downloadQueue.map((d) =>
+          d.id === id ? { ...d, status: 'downloading' as const } : d
+        ),
+      };
+    });
 
     try {
+      console.log('Invoking start_download...');
       const downloadId = await invoke<string>('start_download', {
         options: {
           url: item.url,
@@ -147,10 +155,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
           subtitles: false,
         },
       });
+      console.log('Got downloadId from backend:', downloadId);
 
       // Listen for progress updates
       const unlistenProgress = await listen('download-progress', (event: any) => {
         const payload = event.payload;
+        console.log('Progress event:', payload);
         if (payload.id === downloadId) {
           set((state) => ({
             downloadQueue: state.downloadQueue.map((d) =>
@@ -167,6 +177,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       // Listen for download complete event
       const unlisten = await listen('download-complete', async (event) => {
+        console.log('Download complete event:', event.payload);
         if (event.payload === downloadId) {
           set((state) => ({
             downloadQueue: state.downloadQueue.map((d) =>
@@ -197,6 +208,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
       });
     } catch (error) {
+      console.error('startDownload error:', error);
       set((state) => ({
         downloadQueue: state.downloadQueue.map((d) =>
           d.id === id ? { ...d, status: 'failed' as const, error: String(error) } : d

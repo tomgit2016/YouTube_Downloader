@@ -392,12 +392,16 @@ pub async fn start_download(
             // Parse progress from yt-dlp output
             if line.contains("[download]") && line.contains("%") {
                 if let Some(progress) = parse_progress(&line) {
-                    let _ = app_clone.emit("download-progress", serde_json::json!({
-                        "id": download_id_for_task,
+                    eprintln!("Emitting progress: {}% speed={} eta={}", progress.0, progress.1, progress.2);
+                    let emit_result = app_clone.emit("download-progress", serde_json::json!({
+                        "id": download_id_for_task.clone(),
                         "progress": progress.0,
                         "speed": progress.1,
                         "eta": progress.2
                     }));
+                    if let Err(e) = emit_result {
+                        eprintln!("Failed to emit progress: {}", e);
+                    }
                 }
             }
         }
@@ -407,7 +411,11 @@ pub async fn start_download(
         eprintln!("Download finished with status: {:?}", status);
         
         // Emit completion event
-        let _ = app_clone.emit("download-complete", download_id_for_task);
+        eprintln!("Emitting download-complete for: {}", download_id_for_task);
+        let emit_result = app_clone.emit("download-complete", download_id_for_task);
+        if let Err(e) = emit_result {
+            eprintln!("Failed to emit download-complete: {}", e);
+        }
     });
 
     Ok(download_id)

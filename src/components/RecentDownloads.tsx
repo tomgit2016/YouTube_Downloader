@@ -3,30 +3,37 @@ import { useAppStore } from '../stores/app-store';
 import { formatDuration, formatDate } from '../utils/validation';
 
 export const RecentDownloads: React.FC = () => {
-  const { 
-    downloadQueue, 
-    recentDownloads, 
-    searchQuery, 
-    openFile, 
-    openInFolder, 
-    deleteFile, 
-    loadRecentDownloads,
-    cancelDownload 
-  } = useAppStore();
+  const downloadQueue = useAppStore((state) => state.downloadQueue);
+  const recentDownloads = useAppStore((state) => state.recentDownloads);
+  const searchQuery = useAppStore((state) => state.searchQuery);
+  const openFile = useAppStore((state) => state.openFile);
+  const openInFolder = useAppStore((state) => state.openInFolder);
+  const deleteFile = useAppStore((state) => state.deleteFile);
+  const loadRecentDownloads = useAppStore((state) => state.loadRecentDownloads);
+  const cancelDownload = useAppStore((state) => state.cancelDownload);
+  
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; download: any; isActive: boolean } | null>(null);
 
   useEffect(() => {
     loadRecentDownloads();
-  }, [loadRecentDownloads]);
+  }, []);
+
+  // Debug: log when downloadQueue changes
+  useEffect(() => {
+    console.log('downloadQueue updated:', downloadQueue);
+  }, [downloadQueue]);
 
   // Combine active downloads and recent downloads
   const activeDownloads = downloadQueue.filter(d => 
     d.status === 'downloading' || d.status === 'pending' || d.status === 'completed'
   );
   
+  // Filter out recent downloads that are already in the active queue (to avoid duplicates)
+  const activeIds = new Set(activeDownloads.map(d => d.id));
   const filteredRecent = recentDownloads.filter((d) =>
-    d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    d.url.toLowerCase().includes(searchQuery.toLowerCase())
+    !activeIds.has(d.id) &&
+    (d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    d.url.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const handleDoubleClick = (download: any, isActive: boolean) => {
@@ -68,6 +75,8 @@ export const RecentDownloads: React.FC = () => {
   };
 
   const hasItems = activeDownloads.length > 0 || filteredRecent.length > 0;
+
+  console.log('Rendering RecentDownloads, activeDownloads:', activeDownloads.length, 'filteredRecent:', filteredRecent.length);
 
   return (
     <div className="recent-downloads" onClick={closeContextMenu}>
@@ -126,7 +135,7 @@ export const RecentDownloads: React.FC = () => {
             </div>
           ))}
           
-          {/* Completed downloads */}
+          {/* Completed downloads from storage */}
           {filteredRecent.map((download) => (
             <div
               key={download.id}
