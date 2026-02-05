@@ -11,8 +11,12 @@ export const RecentDownloads: React.FC = () => {
   const deleteFile = useAppStore((state) => state.deleteFile);
   const loadRecentDownloads = useAppStore((state) => state.loadRecentDownloads);
   const cancelDownload = useAppStore((state) => state.cancelDownload);
+  const removeFromQueue = useAppStore((state) => state.removeFromQueue);
+  const clearRecentDownloads = useAppStore((state) => state.clearRecentDownloads);
+  const removeRecentDownload = useAppStore((state) => state.removeRecentDownload);
   
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; download: any; isActive: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; download: any; isActive: boolean; isFromQueue: boolean } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ type: 'delete' | 'remove-all'; title: string; filePath?: string } | null>(null);
 
   useEffect(() => {
     loadRecentDownloads();
@@ -42,32 +46,61 @@ export const RecentDownloads: React.FC = () => {
     }
   };
 
-  const handleContextMenu = (e: React.MouseEvent, download: any, isActive: boolean) => {
+  const handleContextMenu = (e: React.MouseEvent, download: any, isActive: boolean, isFromQueue: boolean = false) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, download, isActive });
+    setContextMenu({ x: e.clientX, y: e.clientY, download, isActive, isFromQueue });
   };
 
-  const handleContextAction = (action: string) => {
+  const handleContextAction = async (action: string) => {
     if (!contextMenu) return;
+    
+    const download = contextMenu.download;
+    const isFromQueue = contextMenu.isFromQueue;
+    const filePath = download.filePath || download.outputPath;
+    
+    // Close context menu first
+    setContextMenu(null);
 
     switch (action) {
       case 'open':
-        openFile(contextMenu.download.filePath || contextMenu.download.outputPath);
+        openFile(filePath);
         break;
       case 'open-folder':
-        openInFolder(contextMenu.download.filePath || contextMenu.download.outputPath);
+        openInFolder(filePath);
         break;
       case 'cancel':
-        cancelDownload(contextMenu.download.id);
+        cancelDownload(download.id);
         break;
       case 'delete':
-        if (confirm(`Delete "${contextMenu.download.title}"?`)) {
-          deleteFile(contextMenu.download.filePath);
+        setConfirmDialog({ type: 'delete', title: download.title, filePath });
+        break;
+      case 'remove':
+        if (isFromQueue) {
+          removeFromQueue(download.id);
+        } else {
+          removeRecentDownload(download.id);
         }
         break;
+      case 'remove-all':
+        setConfirmDialog({ type: 'remove-all', title: '' });
+        break;
     }
+  };
 
-    setContextMenu(null);
+  const handleConfirmAction = async () => {
+    if (!confirmDialog) return;
+    
+    if (confirmDialog.type === 'delete' && confirmDialog.filePath) {
+      await deleteFile(confirmDialog.filePath);
+    } else if (confirmDialog.type === 'remove-all') {
+      downloadQueue.forEach(d => {
+        if (d.status === 'completed') {
+          removeFromQueue(d.id);
+        }
+      });
+      clearRecentDownloads();
+    }
+    setConfirmDialog(null);
   };
 
   const closeContextMenu = () => {
@@ -103,7 +136,7 @@ export const RecentDownloads: React.FC = () => {
               key={download.id}
               className={`download-item ${download.status === 'completed' ? 'completed' : 'downloading'}`}
               onDoubleClick={() => download.status === 'completed' && openFile(download.outputPath)}
-              onContextMenu={(e) => handleContextMenu(e, download, download.status !== 'completed')}
+              onContextMenu={(e) => handleContextMenu(e, download, download.status === 'downloading', true)}
             >
               <div className="download-info">
                 <h3 className="download-title">{download.title}</h3>
@@ -141,7 +174,7 @@ export const RecentDownloads: React.FC = () => {
               key={download.id}
               className="download-item completed"
               onDoubleClick={() => handleDoubleClick(download, false)}
-              onContextMenu={(e) => handleContextMenu(e, download, false)}
+              onContextMenu={(e) => handleContextMenu(e, download, false, false)}
             >
               {download.thumbnail && (
                 <img
@@ -170,25 +203,53 @@ export const RecentDownloads: React.FC = () => {
         <div
           className="context-menu"
           style={{ left: contextMenu.x, top: contextMenu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
           {contextMenu.isActive ? (
-            <button onClick={() => handleContextAction('cancel')}>
+            <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('cancel'); }}>
               Cancel Download
             </button>
           ) : (
             <>
-              <button onClick={() => handleContextAction('open')}>
+              <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('open'); }}>
                 Open Video
               </button>
-              <button onClick={() => handleContextAction('open-folder')}>
+              <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('open-folder'); }}>
                 Show in Finder
               </button>
-              <button onClick={() => handleContextAction('delete')} className="delete">
-                Delete
+              <div className="context-menu-divider" />
+              <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('remove'); }}>
+                Remove from List
+              </button>
+              <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('remove-all'); }}>
+                Remove All from List
+              </button>
+              <div className="context-menu-divider" />
+              <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('delete'); }} className="delete">
+                Delete File
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div className="confirm-overlay" onClick={() => setConfirmDialog(null)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>{confirmDialog.type === 'delete' ? 'Delete File?' : 'Remove All?'}</h3>
+            <p>
+              {confirmDialog.type === 'delete' 
+                ? `This will permanently delete "${confirmDialog.title}" from disk.`
+                : 'This will remove all items from the list. Files will not be deleted from disk.'}
+            </p>
+            <div className="confirm-buttons">
+              <button className="cancel-btn" onClick={() => setConfirmDialog(null)}>Cancel</button>
+              <button className="confirm-btn" onClick={handleConfirmAction}>
+                {confirmDialog.type === 'delete' ? 'Delete' : 'Remove All'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

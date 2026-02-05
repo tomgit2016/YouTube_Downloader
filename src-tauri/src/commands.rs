@@ -709,3 +709,31 @@ pub async fn clear_recent_downloads() -> Result<(), String> {
     
     Ok(())
 }
+
+// Remove a single recent download by ID
+#[tauri::command]
+pub async fn remove_recent_download(id: String) -> Result<(), String> {
+    let path = get_recent_downloads_path()?;
+    
+    if !path.exists() {
+        return Ok(());
+    }
+    
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read recent downloads: {}", e))?;
+    
+    let mut downloads: Vec<RecentDownload> = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse recent downloads: {}", e))?;
+    
+    // Remove the download with the matching ID
+    downloads.retain(|d| d.id != id);
+    
+    // Save back to file
+    let json = serde_json::to_string_pretty(&downloads)
+        .map_err(|e| format!("Failed to serialize recent downloads: {}", e))?;
+    
+    fs::write(&path, json)
+        .map_err(|e| format!("Failed to write recent downloads: {}", e))?;
+    
+    Ok(())
+}

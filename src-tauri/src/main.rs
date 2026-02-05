@@ -29,6 +29,7 @@ fn main() {
             commands::open_in_folder,
             commands::delete_file,
             commands::clear_recent_downloads,
+            commands::remove_recent_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -63,6 +63,7 @@ interface AppStore {
   openInFolder: (path: string) => Promise<void>;
   deleteFile: (path: string) => Promise<void>;
   clearRecentDownloads: () => Promise<void>;
+  removeRecentDownload: (id: string) => Promise<void>;
   setSearchQuery: (query: string) => void;
   setIsLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -284,9 +285,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   deleteFile: async (path) => {
     try {
       await invoke('delete_file', { path });
-      // Remove from recent downloads
+      // Remove from recent downloads and download queue
       set((state) => ({
         recentDownloads: state.recentDownloads.filter((d) => d.filePath !== path),
+        downloadQueue: state.downloadQueue.filter((d) => d.outputPath !== path),
       }));
     } catch (error) {
       console.error('Failed to delete file:', error);
@@ -299,6 +301,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ recentDownloads: [] });
     } catch (error) {
       console.error('Failed to clear recent downloads:', error);
+    }
+  },
+
+  removeRecentDownload: async (id) => {
+    try {
+      await invoke('remove_recent_download', { id });
+      set((state) => ({
+        recentDownloads: state.recentDownloads.filter((d) => d.id !== id),
+      }));
+    } catch (error) {
+      console.error('Failed to remove recent download:', error);
     }
   },
 
