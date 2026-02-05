@@ -61,7 +61,7 @@ interface AppStore {
   addRecentDownload: (download: RecentDownload) => Promise<void>;
   openFile: (path: string) => Promise<void>;
   openFileWith: (path: string, appPath?: string) => Promise<void>;
-  getAppsForFile: (path: string) => Promise<Array<[string, string]>>;
+  getAppsForFile: (path: string) => Promise<Array<[string, string, string]>>;
   openInFolder: (path: string) => Promise<void>;
   deleteFile: (path: string) => Promise<void>;
   clearRecentDownloads: () => Promise<void>;
@@ -286,7 +286,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   getAppsForFile: async (path) => {
     try {
-      return await invoke<Array<[string, string]>>('get_apps_for_file', { path });
+      return await invoke<Array<[string, string, string]>>('get_apps_for_file', { path });
     } catch (error) {
       console.error('Failed to get apps for file:', error);
       return [];

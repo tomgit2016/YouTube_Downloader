@@ -699,46 +699,73 @@ pub async fn open_file_with(path: String, app_path: Option<String>) -> Result<()
 
 // Get list of apps that can open a file type
 #[tauri::command]
-pub async fn get_apps_for_file(path: String) -> Result<Vec<(String, String)>, String> {
+pub async fn get_apps_for_file(path: String) -> Result<Vec<(String, String, String)>, String> {
     #[cfg(target_os = "macos")]
     {
-        // Use Launch Services to get apps that can open this file type
-        let output = Command::new("osascript")
-            .args([
-                "-e",
-                &format!(
-                    r#"use framework "AppKit"
-                    use scripting additions
-                    
-                    set filePath to "{}"
-                    set fileURL to current application's NSURL's fileURLWithPath:filePath
-                    set workspace to current application's NSWorkspace's sharedWorkspace()
-                    set appURLs to workspace's URLsForApplicationsToOpenURL:fileURL
-                    
-                    set appList to {{}}
-                    repeat with appURL in appURLs
-                        set appPath to appURL's |path|() as text
-                        set appName to (appURL's lastPathComponent()'s stringByDeletingPathExtension()) as text
-                        set end of appList to appName & "|" & appPath
-                    end repeat
-                    
-                    set AppleScript's text item delimiters to "\n"
-                    return appList as text"#,
-                    path
-                )
-            ])
+        use std::io::Write;
+        
+        // Single Swift script to get all apps and their icons
+        let swift_code = format!(r#"
+import AppKit
+import Foundation
+
+let filePath = "{}"
+let fileURL = URL(fileURLWithPath: filePath)
+let workspace = NSWorkspace.shared
+
+guard let appURLs = workspace.urlsForApplications(toOpen: fileURL) as [URL]? else {{
+    exit(1)
+}}
+
+for appURL in appURLs {{
+    let appPath = appURL.path
+    let appName = appURL.deletingPathExtension().lastPathComponent
+    
+    // Get icon
+    var iconBase64 = ""
+    if let icon = workspace.icon(forFile: appPath) as NSImage? {{
+        let newSize = NSSize(width: 16, height: 16)
+        let newImage = NSImage(size: newSize)
+        newImage.lockFocus()
+        icon.draw(in: NSRect(origin: .zero, size: newSize), from: NSRect(origin: .zero, size: icon.size), operation: .sourceOver, fraction: 1.0)
+        newImage.unlockFocus()
+        
+        if let tiffData = newImage.tiffRepresentation,
+           let bitmapRep = NSBitmapImageRep(data: tiffData),
+           let pngData = bitmapRep.representation(using: .png, properties: [:]) {{
+            iconBase64 = pngData.base64EncodedString()
+        }}
+    }}
+    
+    print("\(appName)|\(appPath)|\(iconBase64)")
+}}
+"#, path);
+
+        // Write Swift code to temp file
+        let temp_dir = std::env::temp_dir();
+        let swift_file = temp_dir.join("get_apps_icons.swift");
+        
+        if let Ok(mut file) = fs::File::create(&swift_file) {
+            if file.write_all(swift_code.as_bytes()).is_err() {
+                return Err("Failed to write Swift script".to_string());
+            }
+        }
+
+        // Execute Swift script
+        let output = Command::new("swift")
+            .arg(&swift_file)
             .output()
-            .map_err(|e| format!("Failed to get apps: {}", e))?;
+            .map_err(|e| format!("Failed to execute Swift: {}", e))?;
         
         if output.status.success() {
             let result = String::from_utf8_lossy(&output.stdout);
-            let apps: Vec<(String, String)> = result
+            let apps: Vec<(String, String, String)> = result
                 .trim()
                 .lines()
                 .filter_map(|line| {
-                    let parts: Vec<&str> = line.split('|').collect();
-                    if parts.len() == 2 {
-                        Some((parts[0].to_string(), parts[1].to_string()))
+                    let parts: Vec<&str> = line.splitn(3, '|').collect();
+                    if parts.len() == 3 {
+                        Some((parts[0].to_string(), parts[1].to_string(), parts[2].to_string()))
                     } else {
                         None
                     }
@@ -746,11 +773,9 @@ pub async fn get_apps_for_file(path: String) -> Result<Vec<(String, String)>, St
                 .collect();
             Ok(apps)
         } else {
-            // Fallback: return common video apps
+            // Fallback
             Ok(vec![
-                ("QuickTime Player".to_string(), "/System/Applications/QuickTime Player.app".to_string()),
-                ("VLC".to_string(), "/Applications/VLC.app".to_string()),
-                ("IINA".to_string(), "/Applications/IINA.app".to_string()),
+                ("QuickTime Player".to_string(), "/System/Applications/QuickTime Player.app".to_string(), String::new()),
             ])
         }
     }
@@ -759,6 +784,62 @@ pub async fn get_apps_for_file(path: String) -> Result<Vec<(String, String)>, St
     {
         Ok(vec![])
     }
+}
+
+// Helper function to get app icon as base64 PNG (kept for potential future use)
+#[cfg(target_os = "macos")]
+#[allow(dead_code)]
+fn get_app_icon_base64(app_path: &str) -> Option<String> {
+    use std::io::Write;
+    
+    let swift_code = format!(r#"
+import AppKit
+import Foundation
+
+let appPath = "{}"
+let workspace = NSWorkspace.shared
+guard let icon = workspace.icon(forFile: appPath) as NSImage? else {{
+    exit(1)
+}}
+
+let newSize = NSSize(width: 16, height: 16)
+let newImage = NSImage(size: newSize)
+newImage.lockFocus()
+icon.draw(in: NSRect(origin: .zero, size: newSize), from: NSRect(origin: .zero, size: icon.size), operation: .sourceOver, fraction: 1.0)
+newImage.unlockFocus()
+
+guard let tiffData = newImage.tiffRepresentation,
+      let bitmapRep = NSBitmapImageRep(data: tiffData),
+      let pngData = bitmapRep.representation(using: .png, properties: [:]) else {{
+    exit(1)
+}}
+
+print(pngData.base64EncodedString())
+"#, app_path);
+
+    let temp_dir = std::env::temp_dir();
+    let swift_file = temp_dir.join("get_icon.swift");
+    
+    if let Ok(mut file) = fs::File::create(&swift_file) {
+        if file.write_all(swift_code.as_bytes()).is_err() {
+            return None;
+        }
+    } else {
+        return None;
+    }
+
+    let output = Command::new("swift")
+        .arg(&swift_file)
+        .output()
+        .ok()?;
+    
+    if output.status.success() {
+        let base64 = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !base64.is_empty() {
+            return Some(base64);
+        }
+    }
+    None
 }
 
 // Open in folder

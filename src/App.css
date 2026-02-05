@@ -761,8 +761,8 @@ body {
 }
 
 .submenu button {
-  padding: 0.625rem 0.875rem;
-  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -771,10 +771,40 @@ body {
   text-align: left;
   transition: background 0.15s ease;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .submenu button:hover {
-  background: var(--bg-tertiary);
+  background: var(--primary);
+  color: white;
+}
+
+.submenu button:hover .default-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.app-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.app-icon-placeholder {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.app-name {
+  flex: 1;
+}
+
+.default-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
 }
 
 /* Confirm Dialog */

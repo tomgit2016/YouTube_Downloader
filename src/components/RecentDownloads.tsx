@@ -19,8 +19,9 @@ export const RecentDownloads: React.FC = () => {
   
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; download: any; isActive: boolean; isFromQueue: boolean } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ type: 'delete' | 'remove-all'; title: string; filePath?: string } | null>(null);
-  const [openWithApps, setOpenWithApps] = useState<Array<[string, string]>>([]);
+  const [openWithApps, setOpenWithApps] = useState<Array<[string, string, string]>>([]);
   const [showOpenWith, setShowOpenWith] = useState(false);
+  const [appsCache, setAppsCache] = useState<Array<[string, string, string]> | null>(null);
 
   useEffect(() => {
     loadRecentDownloads();
@@ -53,14 +54,20 @@ export const RecentDownloads: React.FC = () => {
   const handleContextMenu = async (e: React.MouseEvent, download: any, isActive: boolean, isFromQueue: boolean = false) => {
     e.preventDefault();
     setShowOpenWith(false);
-    setOpenWithApps([]);
     setContextMenu({ x: e.clientX, y: e.clientY, download, isActive, isFromQueue });
     
-    // Fetch apps that can open this file
+    // Use cached apps if available, otherwise fetch
     const filePath = download.filePath || download.outputPath;
     if (filePath && !isActive) {
-      const apps = await getAppsForFile(filePath);
-      setOpenWithApps(apps);
+      if (appsCache) {
+        setOpenWithApps(appsCache);
+      } else {
+        // Fetch apps in background
+        getAppsForFile(filePath).then(apps => {
+          setAppsCache(apps);
+          setOpenWithApps(apps);
+        });
+      }
     }
   };
 
@@ -251,17 +258,22 @@ export const RecentDownloads: React.FC = () => {
                 </button>
                 {showOpenWith && openWithApps.length > 0 && (
                   <div className="submenu">
-                    {openWithApps.map(([name, path]) => (
+                    {openWithApps.map(([name, path, icon], index) => (
                       <button 
                         key={path} 
                         onMouseDown={(e) => { e.stopPropagation(); handleOpenWithApp(path); }}
+                        className={index === 0 ? 'default-app' : ''}
                       >
-                        {name}
+                        {icon && <img src={`data:image/png;base64,${icon}`} alt="" className="app-icon" />}
+                        {!icon && <span className="app-icon-placeholder" />}
+                        <span className="app-name">{name}</span>
+                        {index === 0 && <span className="default-label">(default)</span>}
                       </button>
                     ))}
                     <div className="context-menu-divider" />
                     <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('open-with'); }}>
-                      Other...
+                      <span className="app-icon-placeholder" />
+                      <span className="app-name">Other...</span>
                     </button>
                   </div>
                 )}
