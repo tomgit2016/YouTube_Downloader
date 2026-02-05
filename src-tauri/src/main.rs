@@ -26,6 +26,8 @@ fn main() {
             commands::get_recent_downloads,
             commands::save_recent_download,
             commands::open_file,
+            commands::open_file_with,
+            commands::get_apps_for_file,
             commands::open_in_folder,
             commands::delete_file,
             commands::clear_recent_downloads,

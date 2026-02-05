@@ -649,6 +649,118 @@ pub async fn open_file(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// Open file with application chooser
+#[tauri::command]
+pub async fn open_file_with(path: String, app_path: Option<String>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(app) = app_path {
+            // Open with specific app
+            Command::new("open")
+                .args(["-a", &app, &path])
+                .spawn()
+                .map_err(|e| format!("Failed to open file with app: {}", e))?;
+        } else {
+            // Show app chooser dialog
+            Command::new("osascript")
+                .args([
+                    "-e",
+                    &format!(
+                        r#"set theFile to POSIX file "{}"
+                        tell application "Finder"
+                            open theFile using (choose application with prompt "Open with:")
+                        end tell"#,
+                        path
+                    )
+                ])
+                .spawn()
+                .map_err(|e| format!("Failed to open file with: {}", e))?;
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("rundll32")
+            .args(["shell32.dll,OpenAs_RunDLL", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file with: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file with: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+// Get list of apps that can open a file type
+#[tauri::command]
+pub async fn get_apps_for_file(path: String) -> Result<Vec<(String, String)>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        // Use Launch Services to get apps that can open this file type
+        let output = Command::new("osascript")
+            .args([
+                "-e",
+                &format!(
+                    r#"use framework "AppKit"
+                    use scripting additions
+                    
+                    set filePath to "{}"
+                    set fileURL to current application's NSURL's fileURLWithPath:filePath
+                    set workspace to current application's NSWorkspace's sharedWorkspace()
+                    set appURLs to workspace's URLsForApplicationsToOpenURL:fileURL
+                    
+                    set appList to {{}}
+                    repeat with appURL in appURLs
+                        set appPath to appURL's |path|() as text
+                        set appName to (appURL's lastPathComponent()'s stringByDeletingPathExtension()) as text
+                        set end of appList to appName & "|" & appPath
+                    end repeat
+                    
+                    set AppleScript's text item delimiters to "\n"
+                    return appList as text"#,
+                    path
+                )
+            ])
+            .output()
+            .map_err(|e| format!("Failed to get apps: {}", e))?;
+        
+        if output.status.success() {
+            let result = String::from_utf8_lossy(&output.stdout);
+            let apps: Vec<(String, String)> = result
+                .trim()
+                .lines()
+                .filter_map(|line| {
+                    let parts: Vec<&str> = line.split('|').collect();
+                    if parts.len() == 2 {
+                        Some((parts[0].to_string(), parts[1].to_string()))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            Ok(apps)
+        } else {
+            // Fallback: return common video apps
+            Ok(vec![
+                ("QuickTime Player".to_string(), "/System/Applications/QuickTime Player.app".to_string()),
+                ("VLC".to_string(), "/Applications/VLC.app".to_string()),
+                ("IINA".to_string(), "/Applications/IINA.app".to_string()),
+            ])
+        }
+    }
+    
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(vec![])
+    }
+}
+
 // Open in folder
 #[tauri::command]
 pub async fn open_in_folder(path: String) -> Result<(), String> {

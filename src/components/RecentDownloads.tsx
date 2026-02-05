@@ -7,6 +7,8 @@ export const RecentDownloads: React.FC = () => {
   const recentDownloads = useAppStore((state) => state.recentDownloads);
   const searchQuery = useAppStore((state) => state.searchQuery);
   const openFile = useAppStore((state) => state.openFile);
+  const openFileWith = useAppStore((state) => state.openFileWith);
+  const getAppsForFile = useAppStore((state) => state.getAppsForFile);
   const openInFolder = useAppStore((state) => state.openInFolder);
   const deleteFile = useAppStore((state) => state.deleteFile);
   const loadRecentDownloads = useAppStore((state) => state.loadRecentDownloads);
@@ -17,6 +19,8 @@ export const RecentDownloads: React.FC = () => {
   
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; download: any; isActive: boolean; isFromQueue: boolean } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ type: 'delete' | 'remove-all'; title: string; filePath?: string } | null>(null);
+  const [openWithApps, setOpenWithApps] = useState<Array<[string, string]>>([]);
+  const [showOpenWith, setShowOpenWith] = useState(false);
 
   useEffect(() => {
     loadRecentDownloads();
@@ -46,9 +50,18 @@ export const RecentDownloads: React.FC = () => {
     }
   };
 
-  const handleContextMenu = (e: React.MouseEvent, download: any, isActive: boolean, isFromQueue: boolean = false) => {
+  const handleContextMenu = async (e: React.MouseEvent, download: any, isActive: boolean, isFromQueue: boolean = false) => {
     e.preventDefault();
+    setShowOpenWith(false);
+    setOpenWithApps([]);
     setContextMenu({ x: e.clientX, y: e.clientY, download, isActive, isFromQueue });
+    
+    // Fetch apps that can open this file
+    const filePath = download.filePath || download.outputPath;
+    if (filePath && !isActive) {
+      const apps = await getAppsForFile(filePath);
+      setOpenWithApps(apps);
+    }
   };
 
   const handleContextAction = async (action: string) => {
@@ -64,6 +77,10 @@ export const RecentDownloads: React.FC = () => {
     switch (action) {
       case 'open':
         openFile(filePath);
+        break;
+      case 'open-with':
+        // Show app chooser dialog as fallback
+        openFileWith(filePath);
         break;
       case 'open-folder':
         openInFolder(filePath);
@@ -105,6 +122,14 @@ export const RecentDownloads: React.FC = () => {
 
   const closeContextMenu = () => {
     setContextMenu(null);
+    setShowOpenWith(false);
+  };
+
+  const handleOpenWithApp = (appPath: string) => {
+    if (!contextMenu) return;
+    const filePath = contextMenu.download.filePath || contextMenu.download.outputPath;
+    openFileWith(filePath, appPath);
+    closeContextMenu();
   };
 
   const hasItems = activeDownloads.length > 0 || filteredRecent.length > 0;
@@ -215,6 +240,32 @@ export const RecentDownloads: React.FC = () => {
               <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('open'); }}>
                 Open Video
               </button>
+              <div 
+                className="context-menu-item-with-submenu"
+                onMouseEnter={() => setShowOpenWith(true)}
+                onMouseLeave={() => setShowOpenWith(false)}
+              >
+                <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('open-with'); }}>
+                  Open With
+                  <span className="submenu-arrow">▶</span>
+                </button>
+                {showOpenWith && openWithApps.length > 0 && (
+                  <div className="submenu">
+                    {openWithApps.map(([name, path]) => (
+                      <button 
+                        key={path} 
+                        onMouseDown={(e) => { e.stopPropagation(); handleOpenWithApp(path); }}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                    <div className="context-menu-divider" />
+                    <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('open-with'); }}>
+                      Other...
+                    </button>
+                  </div>
+                )}
+              </div>
               <button onMouseDown={(e) => { e.stopPropagation(); handleContextAction('open-folder'); }}>
                 Show in Finder
               </button>
