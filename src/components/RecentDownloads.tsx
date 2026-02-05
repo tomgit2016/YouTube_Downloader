@@ -54,19 +54,18 @@ export const RecentDownloads: React.FC = () => {
   const handleContextMenu = async (e: React.MouseEvent, download: any, isActive: boolean, isFromQueue: boolean = false) => {
     e.preventDefault();
     setShowOpenWith(false);
+    setOpenWithApps([]);
     setContextMenu({ x: e.clientX, y: e.clientY, download, isActive, isFromQueue });
     
-    // Use cached apps if available, otherwise fetch
+    // Fetch apps for this file
     const filePath = download.filePath || download.outputPath;
     if (filePath && !isActive) {
-      if (appsCache) {
-        setOpenWithApps(appsCache);
-      } else {
-        // Fetch apps in background
-        getAppsForFile(filePath).then(apps => {
-          setAppsCache(apps);
-          setOpenWithApps(apps);
-        });
+      try {
+        const apps = await getAppsForFile(filePath);
+        setAppsCache(apps);
+        setOpenWithApps(apps);
+      } catch (err) {
+        console.error('Failed to get apps:', err);
       }
     }
   };
@@ -83,14 +82,13 @@ export const RecentDownloads: React.FC = () => {
 
     switch (action) {
       case 'open':
-        openFile(filePath);
+        if (filePath) openFile(filePath);
         break;
       case 'open-with':
-        // Show app chooser dialog as fallback
-        openFileWith(filePath);
+        if (filePath) openFileWith(filePath);
         break;
       case 'open-folder':
-        openInFolder(filePath);
+        if (filePath) openInFolder(filePath);
         break;
       case 'cancel':
         cancelDownload(download.id);
