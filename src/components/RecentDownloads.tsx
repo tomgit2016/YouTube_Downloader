@@ -21,7 +21,6 @@ export const RecentDownloads: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<{ type: 'delete' | 'remove-all'; title: string; filePath?: string } | null>(null);
   const [openWithApps, setOpenWithApps] = useState<Array<[string, string, string]>>([]);
   const [showOpenWith, setShowOpenWith] = useState(false);
-  const [appsCache, setAppsCache] = useState<Array<[string, string, string]> | null>(null);
 
   useEffect(() => {
     loadRecentDownloads();
@@ -62,7 +61,6 @@ export const RecentDownloads: React.FC = () => {
     if (filePath && !isActive) {
       try {
         const apps = await getAppsForFile(filePath);
-        setAppsCache(apps);
         setOpenWithApps(apps);
       } catch (err) {
         console.error('Failed to get apps:', err);

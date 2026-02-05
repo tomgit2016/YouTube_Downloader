@@ -205,6 +205,34 @@ fn get_cookies_path() -> Result<String, String> {
     }
 }
 
+// Helper function to find ffmpeg executable
+fn find_ffmpeg() -> Option<String> {
+    // Common ffmpeg locations on macOS
+    let common_paths = [
+        "/opt/homebrew/bin/ffmpeg",      // Homebrew on Apple Silicon
+        "/usr/local/bin/ffmpeg",          // Homebrew on Intel
+        "/usr/bin/ffmpeg",                // System PATH
+    ];
+    
+    for path in &common_paths {
+        if std::path::Path::new(path).exists() {
+            return Some(path.to_string());
+        }
+    }
+    
+    // Try to find using 'which' command
+    if let Ok(output) = Command::new("which").arg("ffmpeg").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Some(path);
+            }
+        }
+    }
+    
+    None
+}
+
 // Get video info using yt-dlp
 #[tauri::command]
 pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
@@ -237,6 +265,87 @@ pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
         uploader: json["uploader"].as_str().unwrap_or("").to_string(),
         thumbnail: json["thumbnail"].as_str().unwrap_or("").to_string(),
     })
+}
+
+// Combined response for video info, formats, and subtitles
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CombinedVideoInfo {
+    pub info: VideoInfo,
+    pub formats: Vec<VideoFormat>,
+    pub subtitles: Vec<Subtitle>,
+}
+
+// Get video info, formats, and subtitles in a single yt-dlp call (faster)
+#[tauri::command]
+pub async fn get_video_info_combined(url: String) -> Result<CombinedVideoInfo, String> {
+    let yt_dlp = find_yt_dlp()?;
+    let cookies_path = get_cookies_path()?;
+
+    let output = Command::new(&yt_dlp)
+        .args([
+            "--cookies", &cookies_path,
+            "--dump-json", 
+            "--no-playlist",
+            &url
+        ])
+        .output()
+        .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("yt-dlp error: {}", stderr));
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    // Extract video info
+    let info = VideoInfo {
+        id: json["id"].as_str().unwrap_or("").to_string(),
+        title: json["title"].as_str().unwrap_or("").to_string(),
+        description: json["description"].as_str().unwrap_or("").to_string(),
+        duration: json["duration"].as_u64().unwrap_or(0),
+        uploader: json["uploader"].as_str().unwrap_or("").to_string(),
+        thumbnail: json["thumbnail"].as_str().unwrap_or("").to_string(),
+    };
+
+    // Extract formats
+    let mut formats = Vec::new();
+    if let Some(format_array) = json["formats"].as_array() {
+        for format in format_array {
+            if let Some(ext) = format["ext"].as_str() {
+                if ext == "mp4" || ext == "webm" || ext == "mkv" {
+                    formats.push(VideoFormat {
+                        id: format["format_id"].as_str().unwrap_or("").to_string(),
+                        ext: ext.to_string(),
+                        resolution: format["resolution"].as_str().unwrap_or("").to_string(),
+                        fps: format["fps"].as_u64().unwrap_or(0) as u32,
+                        filesize: format["filesize"].as_u64(),
+                        vcodec: format["vcodec"].as_str().unwrap_or("").to_string(),
+                        acodec: format["acodec"].as_str().unwrap_or("").to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Extract subtitles
+    let mut subtitles = Vec::new();
+    if let Some(subs) = json["subtitles"].as_object() {
+        for (lang, data) in subs {
+            if let Some(sub_array) = data.as_array() {
+                if let Some(first_sub) = sub_array.first() {
+                    subtitles.push(Subtitle {
+                        lang: lang.clone(),
+                        name: first_sub["name"].as_str().unwrap_or(lang).to_string(),
+                        format: first_sub["ext"].as_str().unwrap_or("srt").to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(CombinedVideoInfo { info, formats, subtitles })
 }
 
 // Get available formats
@@ -349,6 +458,14 @@ pub async fn start_download(
     
     // Use cookies file for authentication
     cmd.arg("--cookies").arg(&cookies_path);
+    
+    // Set ffmpeg location if found (required for merging video+audio)
+    if let Some(ffmpeg_path) = find_ffmpeg() {
+        // Get the directory containing ffmpeg
+        if let Some(ffmpeg_dir) = std::path::Path::new(&ffmpeg_path).parent() {
+            cmd.arg("--ffmpeg-location").arg(ffmpeg_dir);
+        }
+    }
     
     // Use best video+audio format and let yt-dlp merge them properly
     // This avoids the MPEG-TS container issues and ensures seekable video
@@ -887,7 +1004,32 @@ pub async fn open_in_folder(path: String) -> Result<(), String> {
 // Delete file
 #[tauri::command]
 pub async fn delete_file(path: String) -> Result<(), String> {
+    // Delete the main file
     fs::remove_file(&path).map_err(|e| format!("Failed to delete file: {}", e))?;
+    
+    // Also delete associated subtitle files
+    let path_obj = PathBuf::from(&path);
+    if let Some(stem) = path_obj.file_stem() {
+        if let Some(parent) = path_obj.parent() {
+            let stem_str = stem.to_string_lossy();
+            
+            // Common subtitle extensions
+            let subtitle_extensions = ["srt", "vtt", "ass", "sub", "ssa"];
+            // Common language suffixes
+            let lang_suffixes = ["", ".en", ".eng", ".en-orig"];
+            
+            for ext in &subtitle_extensions {
+                for suffix in &lang_suffixes {
+                    let sub_filename = format!("{}{}.{}", stem_str, suffix, ext);
+                    let sub_path = parent.join(&sub_filename);
+                    if sub_path.exists() {
+                        let _ = fs::remove_file(&sub_path); // Ignore errors for subtitle deletion
+                    }
+                }
+            }
+        }
+    }
+    
     Ok(())
 }
 

@@ -4,7 +4,7 @@ import { YtDlpService } from '../services/ytdlp';
 import { isValidYouTubeUrl } from '../utils/validation';
 
 export const URLInput: React.FC = () => {
-  const { currentUrl, setUrl, setVideoInfo, setAvailableFormats, setAvailableSubtitles, setIsLoading, setError, setQuality } = useAppStore();
+  const { currentUrl, setUrl, setVideoInfo, setAvailableFormats, setAvailableSubtitles, setIsLoading, isLoading, setError, setQuality } = useAppStore();
   const [isValid, setIsValid] = useState(false);
 
   const handleUrlChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -38,15 +38,11 @@ export const URLInput: React.FC = () => {
     setError(null);
 
     try {
-      const [info, formats, subtitles] = await Promise.all([
-        YtDlpService.getVideoInfo(url),
-        YtDlpService.getFormats(url),
-        YtDlpService.getSubtitles(url).catch(() => []),
-      ]);
-
-      setVideoInfo(info);
-      setAvailableFormats(formats);
-      setAvailableSubtitles(subtitles);
+      // Use combined fetch for faster loading
+      const result = await YtDlpService.getVideoInfoCombined(url);
+      setVideoInfo(result.info);
+      setAvailableFormats(result.formats);
+      setAvailableSubtitles(result.subtitles);
     } catch (error) {
       setError(String(error));
       console.error('Failed to fetch video info:', error);
@@ -64,9 +60,17 @@ export const URLInput: React.FC = () => {
           value={currentUrl}
           onChange={handleUrlChange}
           className={`url-input ${isValid ? 'valid' : ''}`}
+          disabled={isLoading}
         />
         <div className="url-actions">
-          {isValid && (
+          {isLoading && (
+            <div className="url-status loading">
+              <svg width="20" height="20" viewBox="0 0 20 20" className="spinner">
+                <circle cx="10" cy="10" r="8" stroke="#6366f1" strokeWidth="2" fill="none" strokeDasharray="40" strokeDashoffset="10" />
+              </svg>
+            </div>
+          )}
+          {!isLoading && isValid && (
             <div className="url-status valid">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <circle cx="10" cy="10" r="8" stroke="#10b981" strokeWidth="2" />
@@ -74,7 +78,7 @@ export const URLInput: React.FC = () => {
               </svg>
             </div>
           )}
-          {currentUrl && (
+          {currentUrl && !isLoading && (
             <button 
               type="button" 
               className="clear-url-button" 
@@ -86,6 +90,9 @@ export const URLInput: React.FC = () => {
           )}
         </div>
       </div>
+      {isLoading && (
+        <div className="loading-text">Fetching video info...</div>
+      )}
     </div>
   );
 };

@@ -32,7 +32,12 @@ A standalone macOS desktop application for downloading YouTube videos with authe
    brew install yt-dlp
    ```
 
-4. **YouTube Cookies** (for authentication)
+4. **ffmpeg** (for merging video and audio streams)
+   ```bash
+   brew install ffmpeg
+   ```
+
+5. **YouTube Cookies** (for authentication)
    
    YouTube requires authentication to avoid bot detection. Export your cookies once:
    ```bash
@@ -172,6 +177,12 @@ yt-dlp --cookies-from-browser chrome --cookies ~/.youtube-downloader/cookies.txt
 Install via Homebrew:
 ```bash
 brew install yt-dlp
+```
+
+### ffmpeg not found (video and audio not merged)
+Install via Homebrew:
+```bash
+brew install ffmpeg
 ```
 
 ### App won't open (macOS Gatekeeper)

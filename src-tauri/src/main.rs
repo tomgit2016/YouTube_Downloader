@@ -13,6 +13,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::validate_url,
             commands::get_video_info,
+            commands::get_video_info_combined,
             commands::get_available_formats,
             commands::get_available_subtitles,
             commands::start_download,

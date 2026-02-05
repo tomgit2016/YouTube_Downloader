@@ -7,7 +7,20 @@ import type {
   DownloadProgress,
 } from '../types';
 
+interface CombinedVideoInfo {
+  info: VideoInfo;
+  formats: VideoFormat[];
+  subtitles: Subtitle[];
+}
+
 export class YtDlpService {
+  /**
+   * Get video info, formats, and subtitles in a single call (faster)
+   */
+  static async getVideoInfoCombined(url: string): Promise<CombinedVideoInfo> {
+    return await invoke<CombinedVideoInfo>('get_video_info_combined', { url });
+  }
+
   /**
    * Get video information from YouTube URL
    */
