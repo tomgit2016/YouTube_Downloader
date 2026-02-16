@@ -64,6 +64,7 @@ function App() {
       progress: 0,
       speed: '0 B/s',
       eta: '--:--',
+      duration: videoInfo.duration,
     };
 
     addToQueue(downloadItem);

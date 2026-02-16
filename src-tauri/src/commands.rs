@@ -1104,3 +1104,11 @@ pub async fn remove_recent_download(id: String) -> Result<(), String> {
     
     Ok(())
 }
+
+// Get file size
+#[tauri::command]
+pub async fn get_file_size(path: String) -> Result<u64, String> {
+    let metadata = fs::metadata(&path)
+        .map_err(|e| format!("Failed to get file metadata: {}", e))?;
+    Ok(metadata.len())
+}

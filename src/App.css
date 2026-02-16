@@ -664,6 +664,11 @@ body {
   font-weight: 500;
 }
 
+.download-size {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
 /* Download Progress */
 .download-progress {
   display: flex;

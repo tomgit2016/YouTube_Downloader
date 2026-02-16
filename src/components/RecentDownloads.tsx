@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../stores/app-store';
-import { formatDuration, formatDate } from '../utils/validation';
+import { formatDuration, formatDate, formatFileSize } from '../utils/validation';
 
 export const RecentDownloads: React.FC = () => {
   const downloadQueue = useAppStore((state) => state.downloadQueue);
@@ -177,11 +177,27 @@ export const RecentDownloads: React.FC = () => {
                 <h3 className="download-title">{download.title}</h3>
                 <div className="download-meta">
                   <span className="download-quality">{download.quality}</span>
-                  {download.status === 'downloading' && download.speed && download.speed !== '0 B/s' && (
-                    <span className="download-speed">{download.speed}</span>
-                  )}
-                  {download.status === 'downloading' && download.eta && download.eta !== '--:--' && (
-                    <span className="download-eta">ETA: {download.eta}</span>
+                  {download.status === 'completed' ? (
+                    <>
+                      {download.duration !== undefined && download.duration > 0 && (
+                        <span className="download-duration">{formatDuration(download.duration)}</span>
+                      )}
+                      {download.size !== undefined && download.size > 0 && (
+                        <span className="download-size">{formatFileSize(download.size)}</span>
+                      )}
+                      {download.downloadedAt && (
+                        <span className="download-date">{formatDate(download.downloadedAt)}</span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {download.speed && download.speed !== '0 B/s' && (
+                        <span className="download-speed">{download.speed}</span>
+                      )}
+                      {download.eta && download.eta !== '--:--' && (
+                        <span className="download-eta">ETA: {download.eta}</span>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -222,7 +238,12 @@ export const RecentDownloads: React.FC = () => {
                 <h3 className="download-title">{download.title}</h3>
                 <div className="download-meta">
                   <span className="download-quality">{download.quality}</span>
-                  <span className="download-duration">{formatDuration(download.duration)}</span>
+                  {download.duration > 0 && (
+                    <span className="download-duration">{formatDuration(download.duration)}</span>
+                  )}
+                  {download.size > 0 && (
+                    <span className="download-size">{formatFileSize(download.size)}</span>
+                  )}
                   <span className="download-date">{formatDate(download.downloadedAt)}</span>
                 </div>
               </div>

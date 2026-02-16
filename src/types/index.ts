@@ -80,6 +80,9 @@ export interface DownloadItem {
   speed: string;
   eta: string;
   error?: string;
+  duration?: number;
+  size?: number;
+  downloadedAt?: string;
 }
 
 export interface User {

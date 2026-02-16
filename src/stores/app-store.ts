@@ -182,9 +182,26 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const unlisten = await listen('download-complete', async (event) => {
         console.log('Download complete event:', event.payload);
         if (event.payload === downloadId) {
+          // Get file size
+          let fileSize = 0;
+          try {
+            fileSize = await invoke<number>('get_file_size', { path: item.outputPath });
+          } catch (err) {
+            console.error('Failed to get file size:', err);
+          }
+
+          const completedAt = new Date().toISOString();
+          
           set((state) => ({
             downloadQueue: state.downloadQueue.map((d) =>
-              d.id === id ? { ...d, status: 'completed' as const, progress: 100 } : d
+              d.id === id ? { 
+                ...d, 
+                status: 'completed' as const, 
+                progress: 100,
+                downloadedAt: completedAt,
+                size: fileSize,
+                duration: videoInfo?.duration || d.duration || 0
+              } : d
             ),
           }));
 
@@ -196,10 +213,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
               url: item.url,
               filePath: item.outputPath,
               thumbnail: videoInfo?.thumbnail || '',
-              size: 0,
+              size: fileSize,
               duration: videoInfo?.duration || 0,
               quality: item.quality,
-              downloadedAt: new Date().toISOString(),
+              downloadedAt: completedAt,
               format: item.format,
             });
           } catch (err) {
