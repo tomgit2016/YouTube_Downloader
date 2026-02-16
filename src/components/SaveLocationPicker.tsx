@@ -11,6 +11,8 @@ export const SaveLocationPicker: React.FC = () => {
     try {
       const path = await invoke<string>('select_save_location');
       setSaveLocation(path);
+      // Save the location for next app launch
+      await invoke('save_last_location', { location: path });
     } catch (error) {
       console.error('Failed to select save location:', error);
     } finally {

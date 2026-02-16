@@ -56,6 +56,7 @@ function App() {
       id: crypto.randomUUID(),
       url: useAppStore.getState().currentUrl,
       title: videoInfo.title,
+      thumbnail: videoInfo.thumbnail,
       format: 'mp4',
       quality: selectedQuality.resolution,
       outputPath,

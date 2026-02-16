@@ -682,10 +682,42 @@ pub async fn select_save_location() -> Result<String, String> {
 // Get default save location (without dialog)
 #[tauri::command]
 pub async fn get_default_save_location() -> Result<String, String> {
+    // First try to load saved location
+    let mut saved_path = dirs::home_dir()
+        .ok_or("Failed to get home directory")?;
+    saved_path.push(".youtube-downloader");
+    saved_path.push("save-location.txt");
+    
+    if saved_path.exists() {
+        if let Ok(location) = fs::read_to_string(&saved_path) {
+            let location = location.trim().to_string();
+            if !location.is_empty() && std::path::Path::new(&location).exists() {
+                return Ok(location);
+            }
+        }
+    }
+    
+    // Fallback to default downloads directory
     let path = dirs::download_dir()
         .ok_or("Failed to get downloads directory")?;
     
     Ok(path.to_string_lossy().to_string())
+}
+
+// Save the last used save location
+#[tauri::command]
+pub async fn save_last_location(location: String) -> Result<(), String> {
+    let mut path = dirs::home_dir()
+        .ok_or("Failed to get home directory")?;
+    path.push(".youtube-downloader");
+    
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&path).map_err(|e| format!("Failed to create directory: {}", e))?;
+    
+    path.push("save-location.txt");
+    fs::write(&path, &location).map_err(|e| format!("Failed to save location: {}", e))?;
+    
+    Ok(())
 }
 
 // Get recent downloads

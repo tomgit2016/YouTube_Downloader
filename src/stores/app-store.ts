@@ -303,8 +303,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   deleteFile: async (path) => {
     try {
+      // Find the download to get its ID before deleting
+      const state = get();
+      const download = state.recentDownloads.find((d) => d.filePath === path);
+      
+      // Delete the file from disk
       await invoke('delete_file', { path });
-      // Remove from recent downloads and download queue
+      
+      // Remove from backend storage if found
+      if (download) {
+        await invoke('remove_recent_download', { id: download.id });
+      }
+      
+      // Remove from local state
       set((state) => ({
         recentDownloads: state.recentDownloads.filter((d) => d.filePath !== path),
         downloadQueue: state.downloadQueue.filter((d) => d.outputPath !== path),

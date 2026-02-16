@@ -24,6 +24,7 @@ fn main() {
             commands::clear_credentials,
             commands::select_save_location,
             commands::get_default_save_location,
+            commands::save_last_location,
             commands::get_recent_downloads,
             commands::save_recent_download,
             commands::open_file,

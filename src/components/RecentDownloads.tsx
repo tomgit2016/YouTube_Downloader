@@ -166,6 +166,13 @@ export const RecentDownloads: React.FC = () => {
               onDoubleClick={() => download.status === 'completed' && openFile(download.outputPath)}
               onContextMenu={(e) => handleContextMenu(e, download, download.status === 'downloading', true)}
             >
+              {download.thumbnail && (
+                <img
+                  src={download.thumbnail}
+                  alt={download.title}
+                  className="download-thumbnail"
+                />
+              )}
               <div className="download-info">
                 <h3 className="download-title">{download.title}</h3>
                 <div className="download-meta">

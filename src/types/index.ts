@@ -71,6 +71,7 @@ export interface DownloadItem {
   id: string;
   url: string;
   title: string;
+  thumbnail: string;
   format: string;
   quality: string;
   outputPath: string;
