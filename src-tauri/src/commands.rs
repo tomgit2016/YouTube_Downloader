@@ -672,11 +672,8 @@ pub async fn select_save_location() -> Result<String, String> {
         }
     }
     
-    // Fallback to default downloads directory
-    let path = dirs::download_dir()
-        .ok_or("Failed to get downloads directory")?;
-    
-    Ok(path.to_string_lossy().to_string())
+    // User cancelled the dialog - return error so frontend knows not to update
+    Err("Folder selection cancelled".to_string())
 }
 
 // Get default save location (without dialog)

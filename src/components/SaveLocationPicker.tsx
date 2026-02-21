@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../stores/app-store';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -6,13 +6,25 @@ export const SaveLocationPicker: React.FC = () => {
   const { saveLocation, setSaveLocation } = useAppStore();
   const [isSelecting, setIsSelecting] = useState(false);
 
+  // Reset isSelecting if it gets stuck (safety timeout)
+  useEffect(() => {
+    if (isSelecting) {
+      const timeout = setTimeout(() => {
+        setIsSelecting(false);
+      }, 30000); // 30 second timeout
+      return () => clearTimeout(timeout);
+    }
+  }, [isSelecting]);
+
   const handleSelectLocation = async () => {
     setIsSelecting(true);
     try {
       const path = await invoke<string>('select_save_location');
-      setSaveLocation(path);
-      // Save the location for next app launch
-      await invoke('save_last_location', { location: path });
+      if (path) {
+        setSaveLocation(path);
+        // Save the location for next app launch
+        await invoke('save_last_location', { location: path });
+      }
     } catch (error) {
       console.error('Failed to select save location:', error);
     } finally {
