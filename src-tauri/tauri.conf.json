@@ -31,7 +31,24 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],
-    "icon": ["icons/icon.png"],
-    "resources": ["binaries/yt-dlp"]
+    "icon": ["icons/icon.icns", "icons/icon.png"],
+    "resources": ["binaries/yt-dlp"],
+    "macOS": {
+      "dmg": {
+        "background": "icons/dmg-background.png",
+        "appPosition": {
+          "x": 200,
+          "y": 200
+        },
+        "applicationFolderPosition": {
+          "x": 500,
+          "y": 200
+        },
+        "windowSize": {
+          "width": 700,
+          "height": 450
+        }
+      }
+    }
   }
 }
