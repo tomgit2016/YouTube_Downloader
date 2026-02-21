@@ -115,7 +115,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   addToQueue: (item) => {
     console.log('Adding to queue:', item);
     set((state) => ({
-      downloadQueue: [...state.downloadQueue, item],
+      downloadQueue: [item, ...state.downloadQueue],
     }));
   },
 
@@ -203,6 +203,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
                 duration: videoInfo?.duration || d.duration || 0
               } : d
             ),
+            // Clear URL input when download completes
+            currentUrl: '',
+            videoMetadata: null,
+            videoInfo: null,
+            availableFormats: [],
+            selectedQuality: null,
           }));
 
           // Add to recent downloads

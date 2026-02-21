@@ -165,6 +165,64 @@ youtube_downloader/
 - **YouTube Backend**: yt-dlp
 - **Package Manager**: Bun
 
+## Framework Details
+
+### Tauri
+
+[Tauri](https://tauri.app/) is a framework for building lightweight, secure desktop applications using web technologies for the frontend and Rust for the backend. Key benefits:
+
+- **Small Bundle Size**: Uses the system's native webview instead of bundling Chromium
+- **Security**: Rust backend with fine-grained permission system
+- **Cross-Platform**: Build for macOS, Windows, and Linux from a single codebase
+- **IPC Communication**: Frontend communicates with Rust backend via `invoke()` commands
+
+Configuration files:
+- `src-tauri/tauri.conf.json` - App metadata, window settings, build configuration, and bundling options
+- `src-tauri/capabilities/default.json` - Permission definitions for shell commands, file system access, etc.
+
+### Cargo (Rust Package Manager)
+
+[Cargo](https://doc.rust-lang.org/cargo/) is Rust's build system and package manager. It handles:
+
+- **Dependency Management**: Dependencies defined in `src-tauri/Cargo.toml`
+- **Building**: `cargo build` compiles the Rust backend
+- **Running**: `cargo tauri dev` starts the development environment
+
+Key Cargo files:
+- `src-tauri/Cargo.toml` - Project metadata and dependencies (similar to `package.json`)
+- `src-tauri/Cargo.lock` - Locked dependency versions for reproducible builds
+- `target/` - Build artifacts directory
+
+Common Cargo commands used in this project:
+```bash
+cargo tauri dev      # Start development with hot reload
+cargo tauri build    # Build production release
+cargo check          # Check for compilation errors without building
+cargo clippy         # Run Rust linter
+```
+
+### Project Architecture
+
+The app follows Tauri's recommended architecture:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    Frontend (WebView)                │
+│         React + TypeScript + Vite + Zustand          │
+│                     src/                             │
+└─────────────────────┬───────────────────────────────┘
+                      │ IPC (invoke/listen)
+┌─────────────────────▼───────────────────────────────┐
+│                   Backend (Rust)                     │
+│              Tauri Commands + yt-dlp                 │
+│                   src-tauri/src/                     │
+└─────────────────────────────────────────────────────┘
+```
+
+- **Frontend** (`src/`): React components handle UI, Zustand manages state, and `@tauri-apps/api` provides IPC
+- **Backend** (`src-tauri/src/`): Rust commands in `commands.rs` handle file operations, yt-dlp execution, and system integration
+- **IPC Bridge**: Frontend calls backend via `invoke('command_name', { args })`, backend emits events via `emit()`
+
 ## Troubleshooting
 
 ### "Sign in to confirm you're not a bot" error
