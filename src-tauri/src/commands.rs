@@ -135,8 +135,20 @@ pub fn validate_url(url: String) -> Result<VideoMetadata, String> {
     })
 }
 
+// Helper struct to hold yt-dlp path and resources directory
+struct YtDlpInfo {
+    path: String,
+    resources_dir: Option<String>,
+    deno_path: Option<String>,
+}
+
 // Helper function to find yt-dlp executable
 fn find_yt_dlp() -> Result<String, String> {
+    find_yt_dlp_with_resources().map(|info| info.path)
+}
+
+// Helper function to find yt-dlp executable and resources directory
+fn find_yt_dlp_with_resources() -> Result<YtDlpInfo, String> {
     // First, try to find the bundled yt-dlp in the Resources directory
     // When running as a bundled app, the executable is in .app/Contents/MacOS/
     // and resources are in .app/Contents/Resources/
@@ -144,27 +156,59 @@ fn find_yt_dlp() -> Result<String, String> {
         let exe_str = exe_path.to_string_lossy().to_string();
         eprintln!("DEBUG: exe_path = {}", exe_str);
         
-        if let Some(resources_dir) = exe_path.parent().and_then(|p| p.parent()) {
-            let resources_dir_str = resources_dir.to_string_lossy().to_string();
-            eprintln!("DEBUG: resources_dir = {}", resources_dir_str);
+        if let Some(contents_dir) = exe_path.parent().and_then(|p| p.parent()) {
+            let contents_dir_str = contents_dir.to_string_lossy().to_string();
+            eprintln!("DEBUG: contents_dir = {}", contents_dir_str);
             
-            // Try both paths: Resources/yt-dlp and Resources/binaries/yt-dlp
-            let resources_path = resources_dir.join("Resources").join("yt-dlp");
-            let resources_path_str = resources_path.to_string_lossy().to_string();
-            eprintln!("DEBUG: checking resources_path = {}, exists = {}", resources_path_str, resources_path.exists());
-            
-            if resources_path.exists() {
-                eprintln!("DEBUG: Found yt-dlp at {}", resources_path_str);
-                return Ok(resources_path_str);
-            }
-            
-            let binaries_path = resources_dir.join("Resources").join("binaries").join("yt-dlp");
+            // Try Resources/binaries/yt-dlp first (this is where Tauri bundles resources)
+            let binaries_path = contents_dir.join("Resources").join("binaries").join("yt-dlp");
             let binaries_path_str = binaries_path.to_string_lossy().to_string();
             eprintln!("DEBUG: checking binaries_path = {}, exists = {}", binaries_path_str, binaries_path.exists());
             
             if binaries_path.exists() {
                 eprintln!("DEBUG: Found yt-dlp at {}", binaries_path_str);
-                return Ok(binaries_path_str);
+                // Return the binaries directory so deno can be found there too
+                let binaries_dir = contents_dir.join("Resources").join("binaries").to_string_lossy().to_string();
+                
+                // Check for bundled deno
+                let deno_path = contents_dir.join("Resources").join("binaries").join("deno");
+                let deno_path_str = if deno_path.exists() {
+                    eprintln!("DEBUG: Found bundled deno at {}", deno_path.to_string_lossy());
+                    Some(deno_path.to_string_lossy().to_string())
+                } else {
+                    eprintln!("DEBUG: Bundled deno not found at {}", deno_path.to_string_lossy());
+                    None
+                };
+                
+                return Ok(YtDlpInfo { 
+                    path: binaries_path_str, 
+                    resources_dir: Some(binaries_dir),
+                    deno_path: deno_path_str,
+                });
+            }
+            
+            // Try Resources/yt-dlp as fallback
+            let resources_path = contents_dir.join("Resources").join("yt-dlp");
+            let resources_path_str = resources_path.to_string_lossy().to_string();
+            eprintln!("DEBUG: checking resources_path = {}, exists = {}", resources_path_str, resources_path.exists());
+            
+            if resources_path.exists() {
+                eprintln!("DEBUG: Found yt-dlp at {}", resources_path_str);
+                let res_dir = contents_dir.join("Resources").to_string_lossy().to_string();
+                
+                // Check for deno in Resources
+                let deno_path = contents_dir.join("Resources").join("deno");
+                let deno_path_str = if deno_path.exists() {
+                    Some(deno_path.to_string_lossy().to_string())
+                } else {
+                    None
+                };
+                
+                return Ok(YtDlpInfo { 
+                    path: resources_path_str, 
+                    resources_dir: Some(res_dir),
+                    deno_path: deno_path_str,
+                });
             }
         }
     }
@@ -180,7 +224,7 @@ fn find_yt_dlp() -> Result<String, String> {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         eprintln!("DEBUG: 'which' found yt-dlp at {}", path);
         if !path.is_empty() {
-            Ok(path)
+            Ok(YtDlpInfo { path, resources_dir: None, deno_path: None })
         } else {
             Err("yt-dlp not found. Please install yt-dlp using: brew install yt-dlp".to_string())
         }
@@ -188,6 +232,23 @@ fn find_yt_dlp() -> Result<String, String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         eprintln!("DEBUG: 'which' failed: {}", stderr);
         Err("yt-dlp not found. Please install yt-dlp using: brew install yt-dlp".to_string())
+    }
+}
+
+// Helper function to configure command with bundled resources in PATH and JS runtime
+fn configure_command_env(cmd: &mut Command, yt_dlp_info: &YtDlpInfo) {
+    if let Some(res_dir) = &yt_dlp_info.resources_dir {
+        // Add the resources directory to PATH so yt-dlp can find bundled deno
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let new_path = format!("{}:{}", res_dir, current_path);
+        cmd.env("PATH", new_path);
+        eprintln!("DEBUG: Set PATH to include resources dir: {}", res_dir);
+    }
+    
+    // Explicitly tell yt-dlp where to find deno using --js-runtimes
+    if let Some(deno_path) = &yt_dlp_info.deno_path {
+        cmd.arg("--js-runtimes").arg(format!("deno:{}", deno_path));
+        eprintln!("DEBUG: Set --js-runtimes deno:{}", deno_path);
     }
 }
 
@@ -236,10 +297,13 @@ fn find_ffmpeg() -> Option<String> {
 // Get video info using yt-dlp
 #[tauri::command]
 pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
-    let yt_dlp = find_yt_dlp()?;
+    let yt_dlp_info = find_yt_dlp_with_resources()?;
     let cookies_path = get_cookies_path()?;
 
-    let output = Command::new(&yt_dlp)
+    let mut cmd = Command::new(&yt_dlp_info.path);
+    configure_command_env(&mut cmd, &yt_dlp_info);
+    
+    let output = cmd
         .args([
             "--cookies", &cookies_path,
             "--dump-json", 
@@ -278,10 +342,13 @@ pub struct CombinedVideoInfo {
 // Get video info, formats, and subtitles in a single yt-dlp call (faster)
 #[tauri::command]
 pub async fn get_video_info_combined(url: String) -> Result<CombinedVideoInfo, String> {
-    let yt_dlp = find_yt_dlp()?;
+    let yt_dlp_info = find_yt_dlp_with_resources()?;
     let cookies_path = get_cookies_path()?;
 
-    let output = Command::new(&yt_dlp)
+    let mut cmd = Command::new(&yt_dlp_info.path);
+    configure_command_env(&mut cmd, &yt_dlp_info);
+    
+    let output = cmd
         .args([
             "--cookies", &cookies_path,
             "--dump-json", 
@@ -351,11 +418,14 @@ pub async fn get_video_info_combined(url: String) -> Result<CombinedVideoInfo, S
 // Get available formats
 #[tauri::command]
 pub async fn get_available_formats(url: String) -> Result<Vec<VideoFormat>, String> {
-    let yt_dlp = find_yt_dlp()?;
+    let yt_dlp_info = find_yt_dlp_with_resources()?;
     let cookies_path = get_cookies_path()?;
 
     // Use --dump-json to get JSON output (formats are included in the video info)
-    let output = Command::new(&yt_dlp)
+    let mut cmd = Command::new(&yt_dlp_info.path);
+    configure_command_env(&mut cmd, &yt_dlp_info);
+    
+    let output = cmd
         .args([
             "--cookies", &cookies_path,
             "--dump-json", 
@@ -399,11 +469,14 @@ pub async fn get_available_formats(url: String) -> Result<Vec<VideoFormat>, Stri
 // Get available subtitles
 #[tauri::command]
 pub async fn get_available_subtitles(url: String) -> Result<Vec<Subtitle>, String> {
-    let yt_dlp = find_yt_dlp()?;
+    let yt_dlp_info = find_yt_dlp_with_resources()?;
     let cookies_path = get_cookies_path()?;
 
     // Use --dump-json to get JSON output (subtitles are included in the video info)
-    let output = Command::new(&yt_dlp)
+    let mut cmd = Command::new(&yt_dlp_info.path);
+    configure_command_env(&mut cmd, &yt_dlp_info);
+    
+    let output = cmd
         .args([
             "--cookies", &cookies_path,
             "--dump-json", 
@@ -452,9 +525,12 @@ pub async fn start_download(
     let app_clone = app.clone();
 
     // Build yt-dlp command
-    let yt_dlp = find_yt_dlp()?;
+    let yt_dlp_info = find_yt_dlp_with_resources()?;
     let cookies_path = get_cookies_path()?;
-    let mut cmd = Command::new(&yt_dlp);
+    let mut cmd = Command::new(&yt_dlp_info.path);
+    
+    // Configure PATH and JS runtime to include bundled resources (deno)
+    configure_command_env(&mut cmd, &yt_dlp_info);
     
     // Use cookies file for authentication
     cmd.arg("--cookies").arg(&cookies_path);
