@@ -1185,3 +1185,83 @@ pub async fn get_file_size(path: String) -> Result<u64, String> {
         .map_err(|e| format!("Failed to get file metadata: {}", e))?;
     Ok(metadata.len())
 }
+
+// Refresh cookies from browser
+#[tauri::command]
+pub async fn refresh_cookies(browser: Option<String>) -> Result<(), String> {
+    let yt_dlp_info = find_yt_dlp_with_resources()?;
+    
+    let mut cookies_path = dirs::home_dir()
+        .ok_or("Failed to get home directory")?;
+    cookies_path.push(".youtube-downloader");
+    
+    // Create directory if it doesn't exist
+    fs::create_dir_all(&cookies_path).map_err(|e| format!("Failed to create directory: {}", e))?;
+    
+    cookies_path.push("cookies.txt");
+    let cookies_path_str = cookies_path.to_string_lossy().to_string();
+    
+    // Default to Chrome if no browser specified
+    let browser_name = browser.unwrap_or_else(|| "chrome".to_string());
+    
+    let mut cmd = Command::new(&yt_dlp_info.path);
+    configure_command_env(&mut cmd, &yt_dlp_info);
+    
+    let output = cmd
+        .args([
+            "--cookies-from-browser", &browser_name,
+            "--cookies", &cookies_path_str,
+            "--skip-download",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        ])
+        .output()
+        .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to refresh cookies: {}", stderr));
+    }
+    
+    Ok(())
+}
+
+// Check if error indicates expired/invalid cookies
+fn is_cookie_error(error: &str) -> bool {
+    let cookie_error_patterns = [
+        "Sign in to confirm your age",
+        "Sign in to confirm you're not a bot",
+        "This video is available to this channel's members",
+        "Join this channel to get access",
+        "Private video",
+        "Video unavailable",
+        "cookies",
+        "login",
+        "sign in",
+        "authentication",
+    ];
+    
+    let error_lower = error.to_lowercase();
+    cookie_error_patterns.iter().any(|pattern| error_lower.contains(&pattern.to_lowercase()))
+}
+
+// Get video info with auto cookie refresh on auth errors
+#[tauri::command]
+pub async fn get_video_info_with_refresh(url: String) -> Result<CombinedVideoInfo, String> {
+    // First attempt
+    match get_video_info_combined(url.clone()).await {
+        Ok(info) => Ok(info),
+        Err(e) if is_cookie_error(&e) => {
+            eprintln!("Cookie error detected, attempting to refresh cookies...");
+            
+            // Try to refresh cookies
+            if let Err(refresh_err) = refresh_cookies(None).await {
+                return Err(format!("Original error: {}. Cookie refresh also failed: {}", e, refresh_err));
+            }
+            
+            // Retry the request
+            get_video_info_combined(url).await
+                .map_err(|retry_err| format!("Failed after cookie refresh: {}", retry_err))
+        }
+        Err(e) => Err(e),
+    }
+}

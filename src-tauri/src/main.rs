@@ -14,6 +14,7 @@ fn main() {
             commands::validate_url,
             commands::get_video_info,
             commands::get_video_info_combined,
+            commands::get_video_info_with_refresh,
             commands::get_available_formats,
             commands::get_available_subtitles,
             commands::start_download,
@@ -35,6 +36,7 @@ fn main() {
             commands::clear_recent_downloads,
             commands::remove_recent_download,
             commands::get_file_size,
+            commands::refresh_cookies,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

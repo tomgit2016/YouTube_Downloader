@@ -1,6 +1,6 @@
 [package]
 name = "youtube-downloader"
-version = "0.2.3"
+version = "0.2.4"
 description = "A YouTube video downloader desktop application"
 authors = ["you"]
 license = ""

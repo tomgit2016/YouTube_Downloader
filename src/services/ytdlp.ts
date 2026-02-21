@@ -22,6 +22,13 @@ export class YtDlpService {
   }
 
   /**
+   * Get video info with automatic cookie refresh on auth errors
+   */
+  static async getVideoInfoWithRefresh(url: string): Promise<CombinedVideoInfo> {
+    return await invoke<CombinedVideoInfo>('get_video_info_with_refresh', { url });
+  }
+
+  /**
    * Get video information from YouTube URL
    */
   static async getVideoInfo(url: string): Promise<VideoInfo> {
@@ -73,5 +80,13 @@ export class YtDlpService {
     } catch (error) {
       return { valid: false };
     }
+  }
+
+  /**
+   * Refresh cookies from browser
+   * @param browser - Browser to extract cookies from (default: 'chrome')
+   */
+  static async refreshCookies(browser?: string): Promise<void> {
+    await invoke('refresh_cookies', { browser: browser || null });
   }
 }
