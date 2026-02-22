@@ -139,7 +139,7 @@ pub fn validate_url(url: String) -> Result<VideoMetadata, String> {
 struct YtDlpInfo {
     path: String,
     resources_dir: Option<String>,
-    deno_path: Option<String>,
+    bun_path: Option<String>,
 }
 
 // Helper function to find yt-dlp executable
@@ -167,23 +167,23 @@ fn find_yt_dlp_with_resources() -> Result<YtDlpInfo, String> {
             
             if binaries_path.exists() {
                 eprintln!("DEBUG: Found yt-dlp at {}", binaries_path_str);
-                // Return the binaries directory so deno can be found there too
+                // Return the binaries directory so bun can be found there too
                 let binaries_dir = contents_dir.join("Resources").join("binaries").to_string_lossy().to_string();
                 
-                // Check for bundled deno
-                let deno_path = contents_dir.join("Resources").join("binaries").join("deno");
-                let deno_path_str = if deno_path.exists() {
-                    eprintln!("DEBUG: Found bundled deno at {}", deno_path.to_string_lossy());
-                    Some(deno_path.to_string_lossy().to_string())
+                // Check for bundled bun
+                let bun_path = contents_dir.join("Resources").join("binaries").join("bun");
+                let bun_path_str = if bun_path.exists() {
+                    eprintln!("DEBUG: Found bundled bun at {}", bun_path.to_string_lossy());
+                    Some(bun_path.to_string_lossy().to_string())
                 } else {
-                    eprintln!("DEBUG: Bundled deno not found at {}", deno_path.to_string_lossy());
+                    eprintln!("DEBUG: Bundled bun not found at {}", bun_path.to_string_lossy());
                     None
                 };
                 
                 return Ok(YtDlpInfo { 
                     path: binaries_path_str, 
                     resources_dir: Some(binaries_dir),
-                    deno_path: deno_path_str,
+                    bun_path: bun_path_str,
                 });
             }
             
@@ -196,10 +196,10 @@ fn find_yt_dlp_with_resources() -> Result<YtDlpInfo, String> {
                 eprintln!("DEBUG: Found yt-dlp at {}", resources_path_str);
                 let res_dir = contents_dir.join("Resources").to_string_lossy().to_string();
                 
-                // Check for deno in Resources
-                let deno_path = contents_dir.join("Resources").join("deno");
-                let deno_path_str = if deno_path.exists() {
-                    Some(deno_path.to_string_lossy().to_string())
+                // Check for bun in Resources
+                let bun_path = contents_dir.join("Resources").join("bun");
+                let bun_path_str = if bun_path.exists() {
+                    Some(bun_path.to_string_lossy().to_string())
                 } else {
                     None
                 };
@@ -207,7 +207,7 @@ fn find_yt_dlp_with_resources() -> Result<YtDlpInfo, String> {
                 return Ok(YtDlpInfo { 
                     path: resources_path_str, 
                     resources_dir: Some(res_dir),
-                    deno_path: deno_path_str,
+                    bun_path: bun_path_str,
                 });
             }
         }
@@ -224,7 +224,7 @@ fn find_yt_dlp_with_resources() -> Result<YtDlpInfo, String> {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         eprintln!("DEBUG: 'which' found yt-dlp at {}", path);
         if !path.is_empty() {
-            Ok(YtDlpInfo { path, resources_dir: None, deno_path: None })
+            Ok(YtDlpInfo { path, resources_dir: None, bun_path: None })
         } else {
             Err("yt-dlp not found. Please install yt-dlp using: brew install yt-dlp".to_string())
         }
@@ -238,17 +238,19 @@ fn find_yt_dlp_with_resources() -> Result<YtDlpInfo, String> {
 // Helper function to configure command with bundled resources in PATH and JS runtime
 fn configure_command_env(cmd: &mut Command, yt_dlp_info: &YtDlpInfo) {
     if let Some(res_dir) = &yt_dlp_info.resources_dir {
-        // Add the resources directory to PATH so yt-dlp can find bundled deno
+        // Add the resources directory to PATH so yt-dlp can find bundled bun
         let current_path = std::env::var("PATH").unwrap_or_default();
         let new_path = format!("{}:{}", res_dir, current_path);
         cmd.env("PATH", new_path);
         eprintln!("DEBUG: Set PATH to include resources dir: {}", res_dir);
     }
     
-    // Explicitly tell yt-dlp where to find deno using --js-runtimes
-    if let Some(deno_path) = &yt_dlp_info.deno_path {
-        cmd.arg("--js-runtimes").arg(format!("deno:{}", deno_path));
-        eprintln!("DEBUG: Set --js-runtimes deno:{}", deno_path);
+    // Explicitly tell yt-dlp where to find bun using --js-runtimes
+    // --no-js-runtimes clears the deno default so bun takes priority
+    if let Some(bun_path) = &yt_dlp_info.bun_path {
+        cmd.arg("--no-js-runtimes");
+        cmd.arg("--js-runtimes").arg(format!("bun:{}", bun_path));
+        eprintln!("DEBUG: Set --js-runtimes bun:{}", bun_path);
     }
 }
 
@@ -529,7 +531,7 @@ pub async fn start_download(
     let cookies_path = get_cookies_path()?;
     let mut cmd = Command::new(&yt_dlp_info.path);
     
-    // Configure PATH and JS runtime to include bundled resources (deno)
+    // Configure PATH and JS runtime to include bundled resources (bun)
     configure_command_env(&mut cmd, &yt_dlp_info);
     
     // Use cookies file for authentication
