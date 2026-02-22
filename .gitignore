@@ -23,6 +23,11 @@ Cargo.lock
 src-tauri/target/
 src-tauri/Cargo.lock
 
+# Large bundled binaries (too large for GitHub, copy manually)
+src-tauri/binaries/bun
+src-tauri/binaries/deno
+src-tauri/binaries/yt-dlp
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
