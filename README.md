@@ -60,6 +60,18 @@ A standalone macOS desktop application for downloading YouTube videos with authe
    bun install
    ```
 
+3. Add required binaries:
+
+   The following binaries are excluded from the repository due to GitHub's file size limits. You need to copy them into `src-tauri/binaries/` before building:
+
+   - **yt-dlp**: `cp $(which yt-dlp) src-tauri/binaries/yt-dlp`
+   - **bun**: `cp $(which bun) src-tauri/binaries/bun`
+
+   Then make them executable:
+   ```bash
+   chmod +x src-tauri/binaries/yt-dlp src-tauri/binaries/bun
+   ```
+
 ## Development
 
 ### Start Development Server (with hot reload)
