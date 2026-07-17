@@ -254,6 +254,37 @@ fn configure_command_env(cmd: &mut Command, yt_dlp_info: &YtDlpInfo) {
     }
 }
 
+// Run yt-dlp self-update in the background at app startup.
+// YouTube regularly breaks older yt-dlp versions (e.g. SABR-only streaming
+// hides all high-quality formats), so keeping it current is required for
+// full quality options. The standalone binary replaces itself in place;
+// pip/brew-managed installs refuse with a notice, which we just log.
+pub fn update_yt_dlp_in_background() {
+    std::thread::spawn(|| {
+        let yt_dlp_info = match find_yt_dlp_with_resources() {
+            Ok(info) => info,
+            Err(e) => {
+                eprintln!("yt-dlp update skipped: {}", e);
+                return;
+            }
+        };
+
+        eprintln!("Checking for yt-dlp updates...");
+        match Command::new(&yt_dlp_info.path).arg("-U").output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if output.status.success() {
+                    eprintln!("yt-dlp update check: {}", stdout.trim());
+                } else {
+                    eprintln!("yt-dlp update failed: {} {}", stdout.trim(), stderr.trim());
+                }
+            }
+            Err(e) => eprintln!("Failed to run yt-dlp -U: {}", e),
+        }
+    });
+}
+
 // Helper function to get cookies file path
 fn get_cookies_path() -> Result<String, String> {
     let mut path = dirs::home_dir()

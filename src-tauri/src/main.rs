@@ -8,6 +8,9 @@ use commands::DownloadManager;
 fn main() {
     let download_manager = DownloadManager::new();
 
+    // Keep yt-dlp current so YouTube format extraction doesn't silently degrade
+    commands::update_yt_dlp_in_background();
+
     tauri::Builder::default()
         .manage(download_manager)
         .invoke_handler(tauri::generate_handler![
